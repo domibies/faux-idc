@@ -138,8 +138,11 @@ const RESERVED = new Set(['iss', 'aud', 'exp', 'iat', 'nbf', 'jti', 'auth_time',
 /** Claims only the access token carries; userinfo leaves them out. */
 const ACCESS_TOKEN_ONLY = new Set(['scope', 'client_id', 'claim_set'])
 
-/** The identity claims a user gets for a claim set: exactly what goes into tokens and userinfo. */
-function effectiveClaims(cfg: Config, username: string, claimSet: string, entra?: EntraIdentity) {
+/**
+ * The identity claims a user gets for a claim set: exactly what goes into tokens and userinfo.
+ * For a client_credentials token, the client_id takes the place of the username.
+ */
+function effectiveClaims(cfg: Config, username: string, claimSet: string, entra?: EntraIdentity, user = true) {
   const vars = {
     username, claimSet, uuid: uuidFrom(username),
     // The real person behind the mock login (empty when the Entra gate is off).
@@ -148,23 +151,25 @@ function effectiveClaims(cfg: Config, username: string, claimSet: string, entra?
   const rendered = renderClaims(cfg.claimSets[claimSet]?.claims ?? {}, vars) as Record<string, unknown>
   const custom = Object.fromEntries(Object.entries(rendered).filter(([k]) => !RESERVED.has(k)))
   const sub = String(custom.sub ?? username)
-  return { sub, aud: rendered.aud, profile: { sub, preferred_username: username, ...custom } }
+  return { sub, aud: rendered.aud, profile: { sub, ...(user ? { preferred_username: username } : {}), ...custom } }
 }
+
+const signer = (iss: string, sub: string, t: number) => (payload: Record<string, unknown>, aud: string | string[], ttl: number) =>
+  new SignJWT(payload)
+    .setProtectedHeader({ alg: 'RS256', kid: keys.kid, typ: 'JWT' })
+    .setIssuer(iss).setSubject(sub).setAudience(aud)
+    .setIssuedAt(t).setExpirationTime(t + ttl).setJti(randomToken(16))
+    .sign(keys.privateKey)
+
+const accessAudience = (cfg: Config, aud: unknown, clientId: string) => (aud ?? cfg.accessTokenAudience ?? clientId) as string | string[]
 
 async function issueTokens(cfg: Config, iss: string, clientId: string, s: Session) {
   const t = now()
   const { sub, aud, profile } = effectiveClaims(cfg, s.username, s.claimSet, s.entra)
+  const sign = signer(iss, sub, t)
 
-  const sign = (payload: Record<string, unknown>, aud: string | string[], ttl: number) =>
-    new SignJWT(payload)
-      .setProtectedHeader({ alg: 'RS256', kid: keys.kid, typ: 'JWT' })
-      .setIssuer(iss).setSubject(sub).setAudience(aud)
-      .setIssuedAt(t).setExpirationTime(t + ttl).setJti(randomToken(16))
-      .sign(keys.privateKey)
-
-  const accessAud = (aud ?? cfg.accessTokenAudience ?? clientId) as string | string[]
   const [accessToken, idToken] = await Promise.all([
-    sign({ ...profile, scope: s.scope, client_id: clientId, claim_set: s.claimSet }, accessAud, cfg.accessTokenTtl),
+    sign({ ...profile, scope: s.scope, client_id: clientId, claim_set: s.claimSet }, accessAudience(cfg, aud, clientId), cfg.accessTokenTtl),
     scopeList(s.scope).includes('openid')
       ? sign({ ...profile, auth_time: s.authTime, azp: clientId, ...(s.nonce ? { nonce: s.nonce } : {}) }, clientId, cfg.idTokenTtl)
       : undefined,
@@ -182,6 +187,14 @@ async function issueTokens(cfg: Config, iss: string, clientId: string, s: Sessio
     refresh_token: refreshToken,
     scope: s.scope,
   }
+}
+
+/** A client_credentials token: the client acts for itself, so there is no user, ID token or refresh token. */
+async function issueClientToken(cfg: Config, iss: string, clientId: string, claimSet: string, scope: string) {
+  const { sub, aud, profile } = effectiveClaims(cfg, clientId, claimSet, undefined, false)
+  const accessToken = await signer(iss, sub, now())(
+    { ...profile, scope, client_id: clientId, claim_set: claimSet }, accessAudience(cfg, aud, clientId), cfg.accessTokenTtl)
+  return { access_token: accessToken, token_type: 'Bearer', expires_in: cfg.accessTokenTtl, scope }
 }
 
 // ---------------------------------------------------------------- app
@@ -217,7 +230,11 @@ app.get('/.well-known/openid-configuration', (c) => {
     end_session_endpoint: `${iss}/logout`,
     response_types_supported: ['code'],
     response_modes_supported: ['query'],
-    grant_types_supported: ['authorization_code', 'refresh_token', ...(passwordGrantEnabled(cfg) ? ['password'] : [])],
+    grant_types_supported: [
+      'authorization_code', 'refresh_token',
+      ...(passwordGrantEnabled(cfg) ? ['password'] : []),
+      ...(cfg.clients.some((cl) => cl.clientSecret) ? ['client_credentials'] : []),
+    ],
     subject_types_supported: ['public'],
     id_token_signing_alg_values_supported: ['RS256'],
     token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'none'],
@@ -349,6 +366,18 @@ app.post('/token', async (c) => {
       if ('error' in resolved) return oauthError(c, 'invalid_request', resolved.error)
       session = { username, claimSet: resolved.claimSet, scope, authTime: now() }
       break
+    }
+
+    // Machine to machine: a confidential client gets a token for itself. The Entra gate does not apply,
+    // because the client secret already proves who is asking.
+    case 'client_credentials': {
+      if (!client.clientSecret) {
+        return oauthError(c, 'unauthorized_client', `Client "${client.clientId}" has no clientSecret; client_credentials needs a confidential client`)
+      }
+      const scope = form.scope ?? ''
+      const resolved = resolveClaimSet(cfg, scope, form.claim_set ?? client.claimSet)
+      if ('error' in resolved) return oauthError(c, 'invalid_scope', resolved.error)
+      return c.json(await issueClientToken(cfg, iss, client.clientId, resolved.claimSet, scope))
     }
 
     default:

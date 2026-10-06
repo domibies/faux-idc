@@ -13,7 +13,7 @@ KEY_FILE="${KEY_FILE:-$DIR/.signing-key.pem}"
 ENTRA_FILE="${ENTRA_FILE:-$DIR/.entra.env}"
 
 # Written by deploy/azure/setup-entra.sh; enables the Entra gate when present.
-ENTRA_TENANT_ID="" ENTRA_CLIENT_ID="" ENTRA_CLIENT_SECRET=""
+ENTRA_TENANT_ID="" ENTRA_CLIENT_ID="" ENTRA_CLIENT_SECRET="" ENTRA_CREDENTIAL="secret"
 [[ -f "$ENTRA_FILE" ]] && source "$ENTRA_FILE"
 
 echo "==> Resource group $RG ($LOCATION)"
@@ -30,7 +30,7 @@ SIGNING_KEY="$(awk '{printf "%s\\n", $0}' "$KEY_FILE")"
 echo "==> Deploying $IMAGE"
 OUT="$(az deployment group create -g "$RG" -n main -f "$DIR/main.bicep" \
   --parameters appName="$APP" image="$IMAGE" signingKey="$SIGNING_KEY" \
-               entraClientId="$ENTRA_CLIENT_ID" entraClientSecret="$ENTRA_CLIENT_SECRET" \
+               entraClientId="$ENTRA_CLIENT_ID" entraClientSecret="$ENTRA_CLIENT_SECRET" entraCredential="$ENTRA_CREDENTIAL" \
                ${ENTRA_TENANT_ID:+entraTenantId="$ENTRA_TENANT_ID"} \
   --query properties.outputs -o json)"
 
@@ -50,7 +50,7 @@ cat <<MSG
 Done.
   Issuer:     $ISSUER
   Discovery:  $ISSUER/.well-known/openid-configuration
-  Entra gate: ${ENTRA_CLIENT_ID:+ON (app $ENTRA_CLIENT_ID)}${ENTRA_CLIENT_ID:-off (run ./$DIR/setup-entra.sh to enable)}
+  Entra gate: ${ENTRA_CLIENT_ID:+ON (app $ENTRA_CLIENT_ID, $ENTRA_CREDENTIAL)}${ENTRA_CLIENT_ID:-off (run ./$DIR/setup-entra.sh to enable)}
 
 Change config (applies live, no restart):
   ./$DIR/push-config.sh config/config.yaml

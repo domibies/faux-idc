@@ -1,7 +1,7 @@
 import { decodeJwt } from 'jose'
 import assert from 'node:assert/strict'
-import { spawn, type ChildProcess } from 'node:child_process'
-import { after, before, describe, test } from 'node:test'
+import { before, describe, test } from 'node:test'
+import { startServer } from './server.js'
 
 // Starts the real server with an inline config and talks to it over HTTP.
 const CONFIG_YAML = `
@@ -12,27 +12,9 @@ claimSets:
   shop-staff: { scopes: [pack:shop], claims: { kind: staff } }
 `
 
-let server: ChildProcess
 let base = ''
 
-before(async () => {
-  server = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
-    env: { ...process.env, PORT: '0', CONFIG_PATH: '/nonexistent/config.yaml', CONFIG_YAML, ISSUER: '' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  base = await new Promise<string>((resolve, reject) => {
-    let output = ''
-    server.stdout!.on('data', (chunk) => {
-      output += chunk
-      const port = /listening on :(\d+)/.exec(output)?.[1]
-      if (port) resolve(`http://localhost:${port}`)
-    })
-    server.stderr!.on('data', (chunk) => { output += chunk })
-    server.on('exit', (code) => reject(new Error(`server exited (${code}):\n${output}`)))
-  })
-})
-
-after(() => { server.kill() })
+before(async () => { base = await startServer(CONFIG_YAML) })
 
 const authorizeQuery = (scope: string) =>
   new URLSearchParams({ response_type: 'code', client_id: 'app', redirect_uri: 'http://app/cb', scope }).toString()
@@ -85,5 +67,10 @@ describe('discovery', () => {
   test('lists the pack scopes in scopes_supported', async () => {
     const doc = await (await fetch(`${base}/.well-known/openid-configuration`)).json()
     assert.ok(doc.scopes_supported.includes('pack:shop'))
+  })
+
+  test('does not list client_credentials without a confidential client', async () => {
+    const doc = await (await fetch(`${base}/.well-known/openid-configuration`)).json()
+    assert.ok(!doc.grant_types_supported.includes('client_credentials'))
   })
 })

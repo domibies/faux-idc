@@ -27,11 +27,16 @@ param entraTenantId string = tenant().tenantId
 @description('Optional Entra gate: app registration client id. Empty = gate off.')
 param entraClientId string = ''
 
-@description('Optional Entra gate: app registration client secret.')
+@description('Optional Entra gate: how the gate authenticates to Entra. managed-identity creates a user-assigned identity for a federated credential, so no client secret is needed.')
+@allowed(['secret', 'managed-identity'])
+param entraCredential string = 'secret'
+
+@description('Optional Entra gate: app registration client secret (only for entraCredential = secret).')
 @secure()
 param entraClientSecret string = ''
 
 var entraEnabled = !empty(entraClientId)
+var useManagedIdentity = entraEnabled && entraCredential == 'managed-identity'
 var shareName = 'oidc-config'
 var envStorageName = 'oidcconfig'
 
@@ -96,10 +101,28 @@ resource envStorage 'Microsoft.App/managedEnvironments/storages@2024-03-01' = {
 
 var issuer = 'https://${appName}.${env.properties.defaultDomain}'
 
+// The gate signs in to Entra with a token of this identity. The app registration trusts it through a
+// federated identity credential (deploy/azure/setup-entra.sh adds it).
+resource gateIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (useManagedIdentity) {
+  name: 'id-${appName}'
+  location: location
+}
+
+var entraCredentialEnv = useManagedIdentity ? [
+  { name: 'ENTRA_CLIENT_ASSERTION', value: 'managed-identity' }
+  { name: 'ENTRA_MANAGED_IDENTITY_CLIENT_ID', value: gateIdentity!.properties.clientId }
+] : [
+  { name: 'ENTRA_CLIENT_SECRET', secretRef: 'entra-client-secret' }
+]
+
 resource app 'Microsoft.App/containerApps@2024-03-01' = {
   name: appName
   location: location
   dependsOn: [envStorage]
+  identity: useManagedIdentity ? {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${gateIdentity.id}': {} }
+  } : { type: 'None' }
   properties: {
     managedEnvironmentId: env.id
     configuration: {
@@ -118,7 +141,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
       }
       secrets: concat([
         { name: 'signing-key', value: signingKey }
-      ], entraEnabled ? [
+      ], entraEnabled && !useManagedIdentity ? [
         { name: 'entra-client-secret', value: entraClientSecret }
       ] : [])
     }
@@ -131,12 +154,11 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           env: concat([
             { name: 'ISSUER', value: issuer }
             { name: 'SIGNING_KEY', secretRef: 'signing-key' }
-          ], entraEnabled ? [
+          ], entraEnabled ? concat([
             { name: 'ENTRA_ENABLED', value: 'true' }
             { name: 'ENTRA_TENANT_ID', value: entraTenantId }
             { name: 'ENTRA_CLIENT_ID', value: entraClientId }
-            { name: 'ENTRA_CLIENT_SECRET', secretRef: 'entra-client-secret' }
-          ] : [])
+          ], entraCredentialEnv) : [])
           volumeMounts: [
             { volumeName: 'config', mountPath: '/config' }
           ]
@@ -166,5 +188,6 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
 output issuer string = issuer
 output discoveryUrl string = '${issuer}/.well-known/openid-configuration'
 output entraRedirectUri string = '${issuer}/entra/callback'
+output entraIdentityPrincipalId string = useManagedIdentity ? gateIdentity!.properties.principalId : ''
 output storageAccount string = storage.name
 output shareName string = share.name

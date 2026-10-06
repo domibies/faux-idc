@@ -8,6 +8,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { createHash, createSecretKey, type KeyObject } from 'node:crypto'
 import { createRemoteJWKSet, jwtVerify, SignJWT, type JWTPayload } from 'jose'
 import type { EntraConfig } from './config.js'
+import { entraClientAuth } from './federated.js'
 import type { SigningKeys } from './keys.js'
 import { ExpiringMap, pkceS256, randomToken } from './util.js'
 
@@ -108,7 +109,7 @@ export async function handleEntraCallback(c: Context, cfg: EntraConfig, baseUrl:
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       client_id: cfg.clientId,
-      client_secret: cfg.clientSecret,
+      ...(await entraClientAuth(cfg)),
       grant_type: 'authorization_code',
       code: q.code,
       redirect_uri: callbackUrl(baseUrl),

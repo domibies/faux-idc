@@ -14,12 +14,25 @@ export interface Client {
   clientSecret?: string
   /** Exact URIs, or a prefix ending in `*` (e.g. http://localhost:5173/*). Empty = allow any. */
   redirectUris?: string[]
+  /** Default claim set for client_credentials tokens. */
+  claimSet?: string
 }
+
+/**
+ * How the gate authenticates to Entra: a client secret, or a client assertion that the app registration
+ * trusts through a federated identity credential.
+ */
+export type EntraCredential =
+  | { type: 'secret'; secret: string }
+  /** A token of this user-assigned managed identity, from the local identity endpoint. */
+  | { type: 'managed-identity'; managedIdentityClientId: string }
+  /** A token read from a file, e.g. a Kubernetes service account token (workload identity). */
+  | { type: 'token-file'; federatedTokenFile: string }
 
 export interface EntraConfig {
   tenantId: string
   clientId: string
-  clientSecret: string
+  credential: EntraCredential
   /** Login host, e.g. https://login.microsoftonline.us for sovereign clouds. */
   authorityHost: string
   /** Who may pass the gate. Empty lists = anyone who can sign in to the app registration. */
@@ -95,10 +108,12 @@ function normalize(raw: any): Config {
   const clients: Client[] = []
   for (const cl of (raw.clients ?? []) as any[]) {
     if (!cl?.clientId) throw new Error('every entry in `clients` needs a clientId')
+    if (cl.claimSet !== undefined && !claimSets[cl.claimSet]) throw new Error(`clients[${cl.clientId}].claimSet "${cl.claimSet}" is not a claim set`)
     clients.push({
       clientId: String(cl.clientId),
       clientSecret: cl.clientSecret !== undefined ? String(cl.clientSecret) : undefined,
       redirectUris: list(cl.redirectUris),
+      claimSet: cl.claimSet !== undefined ? String(cl.claimSet) : undefined,
     })
   }
 
@@ -120,21 +135,46 @@ function resolveEntra(raw: any): EntraConfig | undefined {
   const env = process.env
   const enabled = env.ENTRA_ENABLED ? env.ENTRA_ENABLED === 'true' : raw?.enabled === true
   if (!enabled) return undefined
-  const required = (key: 'tenantId' | 'clientId' | 'clientSecret', envName: string) => {
-    const value = String(raw?.[key] ?? env[envName] ?? '')
-    if (!value) throw new Error(`entra.${key} is required when the Entra gate is enabled (or set ${envName})`)
-    return value
+  const value = (key: string, envName: string) => String(raw?.[key] ?? env[envName] ?? '')
+  const required = (key: string, envName: string, when = 'the Entra gate is enabled') => {
+    const v = value(key, envName)
+    if (!v) throw new Error(`entra.${key} is required when ${when} (or set ${envName})`)
+    return v
   }
   return {
     tenantId: required('tenantId', 'ENTRA_TENANT_ID'),
     clientId: required('clientId', 'ENTRA_CLIENT_ID'),
-    clientSecret: required('clientSecret', 'ENTRA_CLIENT_SECRET'),
+    credential: resolveCredential(value, required),
     authorityHost: String(raw?.authorityHost ?? env.ENTRA_AUTHORITY_HOST ?? 'https://login.microsoftonline.com').replace(/\/+$/, ''),
     allowedUsers: list(raw?.allowedUsers).map((u) => u.toLowerCase()),
     allowedGroups: list(raw?.allowedGroups),
     allowedRoles: list(raw?.allowedRoles),
     sessionTtl: positiveInt(raw?.sessionTtl, 8 * 3600, 'entra.sessionTtl'),
     allowPasswordGrant: raw?.allowPasswordGrant === true,
+  }
+}
+
+/** Exactly one credential: a client secret, or a client assertion with the settings that its type needs. */
+function resolveCredential(
+  value: (key: string, envName: string) => string,
+  required: (key: string, envName: string, when: string) => string,
+): EntraCredential {
+  const secret = value('clientSecret', 'ENTRA_CLIENT_SECRET')
+  const assertion = value('clientAssertion', 'ENTRA_CLIENT_ASSERTION')
+  if (secret && assertion) {
+    throw new Error('entra.clientSecret and entra.clientAssertion are mutually exclusive (check ENTRA_CLIENT_SECRET and ENTRA_CLIENT_ASSERTION)')
+  }
+  if (secret) return { type: 'secret', secret }
+  const when = `entra.clientAssertion is ${assertion}`
+  switch (assertion) {
+    case 'managed-identity':
+      return { type: 'managed-identity', managedIdentityClientId: required('managedIdentityClientId', 'ENTRA_MANAGED_IDENTITY_CLIENT_ID', when) }
+    case 'token-file':
+      return { type: 'token-file', federatedTokenFile: required('federatedTokenFile', 'AZURE_FEDERATED_TOKEN_FILE', when) }
+    case '':
+      throw new Error('entra.clientSecret or entra.clientAssertion is required when the Entra gate is enabled (or set ENTRA_CLIENT_SECRET or ENTRA_CLIENT_ASSERTION)')
+    default:
+      throw new Error(`entra.clientAssertion must be managed-identity or token-file, not "${assertion}"`)
   }
 }
 
@@ -150,7 +190,7 @@ function applyEnv(cfg: Config): Config {
 function describe(cfg: Config) {
   return `${Object.keys(cfg.claimSets).length} claim set(s) [${Object.keys(cfg.claimSets).join(', ')}], ` +
     `${cfg.passwords.length} password(s), ${cfg.clients.length || 'any'} client(s)` +
-    (cfg.entra ? `, Entra gate ON (tenant ${cfg.entra.tenantId})` : '')
+    (cfg.entra ? `, Entra gate ON (tenant ${cfg.entra.tenantId}, ${cfg.entra.credential.type})` : '')
 }
 
 /** Validates a parsed config file and applies the environment variables. */
