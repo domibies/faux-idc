@@ -14,6 +14,8 @@ export interface Client {
   clientSecret?: string
   /** Exact URIs, or a prefix ending in `*` (e.g. http://localhost:5173/*). Empty = allow any. */
   redirectUris?: string[]
+  /** Default claim set for client_credentials tokens. */
+  claimSet?: string
 }
 
 /**
@@ -106,10 +108,12 @@ function normalize(raw: any): Config {
   const clients: Client[] = []
   for (const cl of (raw.clients ?? []) as any[]) {
     if (!cl?.clientId) throw new Error('every entry in `clients` needs a clientId')
+    if (cl.claimSet !== undefined && !claimSets[cl.claimSet]) throw new Error(`clients[${cl.clientId}].claimSet "${cl.claimSet}" is not a claim set`)
     clients.push({
       clientId: String(cl.clientId),
       clientSecret: cl.clientSecret !== undefined ? String(cl.clientSecret) : undefined,
       redirectUris: list(cl.redirectUris),
+      claimSet: cl.claimSet !== undefined ? String(cl.claimSet) : undefined,
     })
   }
 

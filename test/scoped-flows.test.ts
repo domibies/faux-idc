@@ -68,4 +68,9 @@ describe('discovery', () => {
     const doc = await (await fetch(`${base}/.well-known/openid-configuration`)).json()
     assert.ok(doc.scopes_supported.includes('pack:shop'))
   })
+
+  test('does not list client_credentials without a confidential client', async () => {
+    const doc = await (await fetch(`${base}/.well-known/openid-configuration`)).json()
+    assert.ok(!doc.grant_types_supported.includes('client_credentials'))
+  })
 })
