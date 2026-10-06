@@ -3,7 +3,7 @@
 [![CI](https://github.com/domibies/faux-idc/actions/workflows/ci.yml/badge.svg)](https://github.com/domibies/faux-idc/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/tag/domibies/faux-idc?label=version&sort=semver)](https://github.com/domibies/faux-idc/pkgs/container/faux-idc)
 [![Image](https://img.shields.io/badge/image-ghcr.io%2Fdomibies%2Ffaux--idc-blue?logo=docker&logoColor=white)](https://github.com/domibies/faux-idc/pkgs/container/faux-idc)
-[![License: MIT](https://img.shields.io/github/license/domibies/faux-idc)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **A mock OpenID Connect provider for development and testing.** Sign in as any user, pick a claim
 set, get real signed tokens. It runs as one small container, with no database and no setup.
