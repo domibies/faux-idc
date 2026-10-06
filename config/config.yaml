@@ -14,11 +14,17 @@ passwords:
 # Optional: require a real Microsoft Entra sign-in before the mock form is shown.
 # The Entra login replaces the password field; the mock form still decides the token identity.
 # Secrets are better passed as env vars: ENTRA_ENABLED, ENTRA_TENANT_ID, ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET.
+# The gate authenticates to Entra with exactly one of: a client secret, or a client assertion (no secret;
+# the app registration trusts the workload through a federated identity credential).
 # entra:
 #   enabled: true
 #   tenantId: 00000000-0000-0000-0000-000000000000   # your tenant id (or domain)
 #   clientId: 00000000-0000-0000-0000-000000000000   # app registration (Web, redirect <issuer>/entra/callback)
 #   # clientSecret: from ENTRA_CLIENT_SECRET
+#   # clientAssertion: managed-identity              # or ENTRA_CLIENT_ASSERTION; instead of clientSecret
+#   # managedIdentityClientId: 00000000-0000-0000-0000-000000000000   # user-assigned identity (ENTRA_MANAGED_IDENTITY_CLIENT_ID)
+#   # clientAssertion: token-file                    # Kubernetes workload identity
+#   # federatedTokenFile: /var/run/secrets/azure/tokens/azure-identity-token   # default: AZURE_FEDERATED_TOKEN_FILE
 #   allowedUsers: ["*@contoso.com"]   # optional: UPN/email, * prefix = suffix match
 #   allowedGroups: []                 # optional: group object ids (needs the groups claim)
 #   allowedRoles: []                  # optional: app role values
@@ -34,15 +40,20 @@ refreshTokenTtl: 86400
 # accessTokenAudience: api://my-api
 
 # Leave empty to accept any client_id and redirect_uri.
+# A client with a clientSecret (confidential) can also use grant_type=client_credentials.
 clients: []
 #  - clientId: my-spa                       # public client, use PKCE
 #    redirectUris: ["http://localhost:5173/*"]
 #  - clientId: my-backend                   # confidential client
 #    clientSecret: s3cret
 #    redirectUris: ["http://localhost:3000/auth/callback"]
+#  - clientId: ingest-job                   # service: client_credentials only
+#    clientSecret: s3cret
+#    claimSet: minimal                      # optional default claim set for client_credentials
 
-# Named claim sets. Picked on the login screen (or via claim_set in the password grant).
+# Named claim sets. Picked on the login screen (or via claim_set in the password and client_credentials grants).
 # String values support {{username}}, {{claimSet}} and {{uuid}} (stable UUID per username).
+# In a client_credentials token, {{username}} is the client_id.
 # With the Entra gate on, also {{entraName}}, {{entraUsername}}, {{entraEmail}} and {{entraOid}}:
 # the real person who signed in (handy for audit claims, e.g. tested_by: "{{entraEmail}}").
 # Setting `sub` overrides the default sub (= username).

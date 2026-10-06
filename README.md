@@ -28,6 +28,7 @@ setup. faux-idc does only what an app needs to sign in:
 - **Claim sets per scope.** An app can request a scope to get its own set of claim sets.
 - **Live configuration.** Edit `config.yaml` and the next sign-in uses it. You do not restart anything.
 - **Tokens for CI.** The password grant gives tokens to scripts and tests, without a browser.
+- **Tokens for services.** The client credentials grant gives a confidential client a token without a user.
 - **Standard OIDC.** Discovery, JWKS, authorization code flow with PKCE, refresh tokens, userinfo and logout.
 - **Optional Microsoft Entra gate.** Only people in your Entra tenant can use a shared server.
 - **Small image.** Node and one bundled JavaScript file, for `linux/amd64` and `linux/arm64`.
@@ -60,6 +61,54 @@ Configure your app as for any OIDC provider:
 
 When your app starts a sign-in, faux-idc shows the form. The username and the claim set that you
 select go into the ID token, the access token and the userinfo response.
+
+## Tokens without a browser
+
+Scripts, tests and services can get a token directly from `/token`. faux-idc has two grants for this.
+
+**Password grant.** Send a username, one of the global passwords and an optional `claim_set`. The
+token has a user, as a token from the sign-in form has:
+
+```bash
+curl -s localhost:8080/token -d grant_type=password -d client_id=demo \
+  -d username=alice -d password=letmein -d claim_set=admin
+```
+
+**Client credentials grant.** A service gets a token for itself, without a user. Use this grant for
+calls from one app to another, for example from an ingest job or a seed script. Only a confidential
+client can use this grant. A confidential client is a client in `clients` that has a `clientSecret`:
+
+```yaml
+clients:
+  - clientId: ingest-job
+    clientSecret: s3cret
+    claimSet: minimal     # optional
+```
+
+```bash
+curl -s localhost:8080/token -u ingest-job:s3cret \
+  -d grant_type=client_credentials -d scope=api:write
+```
+
+The client sends its secret with HTTP Basic authentication (`client_secret_basic`, as in the example),
+or as `client_id` and `client_secret` in the body (`client_secret_post`). The token is different from
+a user token:
+
+- The response contains only an access token. It contains no ID token and no refresh token.
+- `sub` is the `client_id`, unless the claim set contains `sub`. In the claim values, `{{username}}`
+  is the `client_id`. The token has no `preferred_username`.
+- The requested scope goes into the `scope` claim. `aud` is `accessTokenAudience` or the `client_id`.
+
+faux-idc selects the claim set in this order:
+
+1. The `claim_set` parameter of the request.
+2. The `claimSet` of the client.
+3. The first claim set that is available for the requested scope.
+
+The rules of [claim sets per scope](#claim-sets-per-scope) apply to the selected claim set. If the
+scope does not allow that claim set, faux-idc returns `invalid_scope`. A public client gets
+`unauthorized_client`. The discovery document lists `client_credentials` in `grant_types_supported`
+only when at least one client has a `clientSecret`.
 
 ## Run
 
@@ -147,7 +196,7 @@ the `scope` claim of the access token. The home page shows the scopes of each cl
 | `/.well-known/openid-configuration` | Discovery |
 | `/.well-known/jwks.json` (also `/jwks`) | Public signing key (RS256) |
 | `/authorize` | Authorization code flow, PKCE (S256/plain), `state`, `nonce`, `login_hint`, `prompt=none` → `login_required` |
-| `/token` | `authorization_code`, `refresh_token` (rotating), `password` |
+| `/token` | `authorization_code`, `refresh_token` (rotating), `password`, `client_credentials` |
 | `/userinfo` | Claims from the bearer access token |
 | `/logout` | Redirects to `post_logout_redirect_uri` with `state` |
 
@@ -163,6 +212,7 @@ the `scope` claim of the access token. The home page shows the scopes of each cl
 - Codes and refresh tokens are in memory. A restart makes all refresh tokens invalid. Access tokens
   stay valid if the signing key is persistent.
 - With `clients: []`, faux-idc accepts all values of `client_id` and `redirect_uri`, and does not check a secret.
+  All clients are then public, so the client credentials grant is not available.
 - All claims of a claim set go into the ID token, the access token and userinfo. The requested scope
   selects the claim sets, but it does not filter the claims in them.
 
@@ -176,11 +226,14 @@ of the tokens. Entra only controls *who can use* the server.
   <img src="docs/screenshots/entra-gate.png" alt="Sign-in form after the Entra check, with the verified account at the top" width="360">
 </p>
 
-1. Create an app registration with platform **Web**, redirect URI `<issuer>/entra/callback`, and a client secret.
-2. Set `ENTRA_ENABLED=true`, `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID` and `ENTRA_CLIENT_SECRET`. You can
-   also use the `entra:` section in `config.yaml`. The `ENTRA_ENABLED` variable has priority over the
-   file. For the other settings, a value in the file has priority over the environment variable.
-3. Decide who can sign in. The simplest method is to set *Assignment required* on the enterprise
+1. Create an app registration with platform **Web** and redirect URI `<issuer>/entra/callback`.
+2. Give faux-idc a credential for the app registration: a client secret, or a
+   [federated credential](#sign-in-to-entra-without-a-client-secret).
+3. Set `ENTRA_ENABLED=true`, `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID` and the settings of the credential.
+   For a client secret, set `ENTRA_CLIENT_SECRET`. You can also use the `entra:` section in
+   `config.yaml`. The `ENTRA_ENABLED` variable has priority over the file. For the other settings, a
+   value in the file has priority over the environment variable.
+4. Decide who can sign in. The simplest method is to set *Assignment required* on the enterprise
    application, and then assign users or groups there. You can also use `allowedUsers`
    (`"*@contoso.com"`), `allowedGroups` or `allowedRoles` in the configuration.
 
@@ -189,10 +242,65 @@ Details:
   *Switch account* on the form selects a different Microsoft account. `/entra/logout` deletes the cookie.
 - Claim values can refer to the real person: `{{entraName}}`, `{{entraUsername}}`, `{{entraEmail}}`, `{{entraOid}}`.
 - The `password` grant is off while the gate is on, unless you set `entra.allowPasswordGrant: true`.
+- The `client_credentials` grant stays on while the gate is on. The client secret already proves who
+  asks for the token, and the gate protects only the sign-in of people.
 - The home page and the claims preview also need the Entra session. Discovery, JWKS, token and
   userinfo stay open, because your apps need them.
 - If the Entra settings are not complete at startup, faux-idc does not start. It never runs without the gate by accident.
 - faux-idc logs each gated sign-in: `[entra] jan@contoso.com signed in as "alice" with claim set "admin" for client my-app`.
+
+### Sign in to Entra without a client secret
+
+Many organisations do not allow client secrets on app registrations. Instead, the app registration
+trusts a workload identity through a *federated identity credential*. faux-idc then gets a token of
+that identity, and sends it to Entra as a *client assertion*. You do not store a secret.
+
+| Setting in `entra:` | Environment variable | Value |
+|---|---|---|
+| `clientAssertion` | `ENTRA_CLIENT_ASSERTION` | `managed-identity` or `token-file`. Do not set it together with `clientSecret` |
+| `managedIdentityClientId` | `ENTRA_MANAGED_IDENTITY_CLIENT_ID` | With `managed-identity`: the client id of the user-assigned managed identity |
+| `federatedTokenFile` | `AZURE_FEDERATED_TOKEN_FILE` | With `token-file`: the path of the token file |
+
+The gate needs exactly one credential: `clientSecret` or `clientAssertion`. If it has none, or both,
+faux-idc does not start.
+
+**Managed identity (Azure Container Apps, App Service).** Use a *user-assigned* managed identity.
+Entra does not accept a system-assigned identity as a federated credential. Do these steps:
+
+1. Assign the user-assigned identity to the app that runs faux-idc.
+2. On the app registration, add a federated credential for the managed identity:
+
+   | Field | Value |
+   |---|---|
+   | Issuer | `https://login.microsoftonline.com/<tenant id>/v2.0` |
+   | Subject | The principal (object) id of the managed identity |
+   | Audience | `api://AzureADTokenExchange` |
+
+   With the Azure CLI:
+
+   ```bash
+   az ad app federated-credential create --id <app registration client id> --parameters '{
+     "name": "faux-idc-gate",
+     "issuer": "https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0",
+     "subject": "<principal id of the managed identity>",
+     "audiences": ["api://AzureADTokenExchange"]
+   }'
+   ```
+
+3. Set `ENTRA_CLIENT_ASSERTION=managed-identity` and `ENTRA_MANAGED_IDENTITY_CLIENT_ID=<client id of the managed identity>`.
+
+faux-idc gets the identity token from the local identity endpoint of the platform (the variables
+`IDENTITY_ENDPOINT` and `IDENTITY_HEADER`). It keeps the token until five minutes before it expires.
+In a US Government or China cloud, set `authorityHost`; faux-idc then uses the audience of that cloud.
+
+**Kubernetes workload identity.** The workload identity webhook writes a service account token to a
+file, and sets `AZURE_FEDERATED_TOKEN_FILE`. Set `ENTRA_CLIENT_ASSERTION=token-file`. faux-idc reads
+the file again at each sign-in, because the platform replaces the token before it expires. On the app
+registration, add a federated credential with the issuer URL of the cluster, the subject
+`system:serviceaccount:<namespace>:<service account>` and the audience `api://AzureADTokenExchange`.
+
+If faux-idc cannot get the identity token, or if Entra rejects it, the sign-in shows the error.
+faux-idc does not log the token.
 
 ## Deploy
 
@@ -223,7 +331,9 @@ npm run build                                  # typecheck and bundle to dist/se
 ```
 
 To test the Entra gate without a real tenant, run `node test/fake-entra.mjs`. The comment at the top
-of that file shows the configuration to use.
+of that file shows the configuration for each credential. The fake Entra also has a fake identity
+endpoint and a fake Kubernetes token, so you can test a client assertion. `npm test` runs the gate
+sign-in against the fake Entra.
 
 To regenerate the screenshots in this README, run:
 
