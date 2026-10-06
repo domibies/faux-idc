@@ -1,0 +1,86 @@
+# faux-idc configuration.
+# This file is re-read automatically when it changes: no restart needed.
+
+# Public URL your apps (and browsers) use to reach this server. Must match exactly
+# what your app validates as `iss`. If omitted, it is derived from the request Host
+# (and X-Forwarded-Proto / X-Forwarded-Host behind a reverse proxy).
+# issuer: http://localhost:8080
+
+# Global passwords: any username can sign in with any of these.
+passwords:
+  - letmein
+  - test123
+
+# Optional: require a real Microsoft Entra sign-in before the mock form is shown.
+# The Entra login replaces the password field; the mock form still decides the token identity.
+# Secrets are better passed as env vars: ENTRA_ENABLED, ENTRA_TENANT_ID, ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET.
+# entra:
+#   enabled: true
+#   tenantId: 00000000-0000-0000-0000-000000000000   # your tenant id (or domain)
+#   clientId: 00000000-0000-0000-0000-000000000000   # app registration (Web, redirect <issuer>/entra/callback)
+#   # clientSecret: from ENTRA_CLIENT_SECRET
+#   allowedUsers: ["*@contoso.com"]   # optional: UPN/email, * prefix = suffix match
+#   allowedGroups: []                 # optional: group object ids (needs the groups claim)
+#   allowedRoles: []                  # optional: app role values
+#   sessionTtl: 28800                 # remember the Entra check for 8 hours
+#   allowPasswordGrant: false         # keep grant_type=password working (uses `passwords`)
+
+# Lifetimes in seconds.
+accessTokenTtl: 3600
+idTokenTtl: 3600
+refreshTokenTtl: 86400
+
+# Audience for access tokens (defaults to the client_id). A claim set can override with `aud`.
+# accessTokenAudience: api://my-api
+
+# Leave empty to accept any client_id and redirect_uri.
+clients: []
+#  - clientId: my-spa                       # public client, use PKCE
+#    redirectUris: ["http://localhost:5173/*"]
+#  - clientId: my-backend                   # confidential client
+#    clientSecret: s3cret
+#    redirectUris: ["http://localhost:3000/auth/callback"]
+
+# Named claim sets. Picked on the login screen (or via claim_set in the password grant).
+# String values support {{username}}, {{claimSet}} and {{uuid}} (stable UUID per username).
+# With the Entra gate on, also {{entraName}}, {{entraUsername}}, {{entraEmail}} and {{entraOid}}:
+# the real person who signed in (handy for audit claims, e.g. tested_by: "{{entraEmail}}").
+# Setting `sub` overrides the default sub (= username).
+#
+# Optional `scopes`: the claim set is offered only when the auth request asks for one of these
+# scopes (e.g. a scope chosen by an app module). When a request asks for none of them, only the
+# claim sets without `scopes` are offered. Example:
+#   shop-customer:
+#     scopes: [pack:shop]
+#     claims: { name: "{{username}}", customer_id: "{{uuid}}" }
+claimSets:
+  admin:
+    description: Full access
+    claims:
+      name: "{{username}} (admin)"
+      email: "{{username}}@example.com"
+      email_verified: true
+      roles: [admin, user]
+      groups: [administrators]
+
+  user:
+    description: Regular user
+    claims:
+      name: "{{username}}"
+      email: "{{username}}@example.com"
+      email_verified: true
+      roles: [user]
+
+  azure-like:
+    description: Entra ID-style claims
+    claims:
+      sub: "{{uuid}}"
+      oid: "{{uuid}}"
+      tid: 00000000-0000-0000-0000-000000000001
+      upn: "{{username}}@contoso.test"
+      name: "{{username}}"
+      roles: [Reader]
+
+  minimal:
+    description: Only sub and preferred_username
+    claims: {}

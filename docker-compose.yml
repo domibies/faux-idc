@@ -1,0 +1,23 @@
+services:
+  faux-idc:
+    image: ghcr.io/domibies/faux-idc:latest
+    build: .                              # `docker compose up --build` uses the local source instead
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"                        # listen port inside the container (right side of `ports`)
+      # ISSUER: http://localhost:8080     # optional: default is the URL from the request
+      # PASSWORDS: letmein,test123        # optional override of the file
+      # Optional Entra gate (redirect URI in the app registration: http://localhost:8080/entra/callback)
+      # ENTRA_ENABLED: "true"
+      # ENTRA_TENANT_ID: <tenant-id>
+      # ENTRA_CLIENT_ID: <app-client-id>
+      # ENTRA_CLIENT_SECRET: <secret>
+    volumes:
+      # Mount the directory, not the file, so edits made by any editor are picked up.
+      - ./config:/config:ro
+      - faux-idc-data:/data               # persists the signing key across restarts
+
+volumes:
+  faux-idc-data:

@@ -1,0 +1,19 @@
+# Demo config for the Entra gate screenshot. Uses the fake Entra server in test/fake-entra.mjs.
+claimSets:
+  admin:
+    description: Full access
+    claims:
+      name: "{{username}} (admin)"
+      roles: [admin]
+      tested_by: "{{entraEmail}}"
+  user:
+    description: Regular user
+    claims:
+      name: "{{username}}"
+      roles: [user]
+entra:
+  enabled: true
+  tenantId: 11111111-2222-3333-4444-555555555555
+  clientId: gate-app
+  clientSecret: gate-secret
+  authorityHost: http://localhost:9000

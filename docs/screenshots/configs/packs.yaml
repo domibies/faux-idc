@@ -1,0 +1,34 @@
+# Demo config for the home page screenshot: a shared claim set plus two scoped "packs".
+passwords: [letmein]
+clients:
+  - clientId: assistant
+    redirectUris: ["http://localhost:3000/*"]
+  - clientId: backoffice-api
+    clientSecret: s3cret
+claimSets:
+  employee:
+    description: Default employee
+    claims:
+      name: "{{username}}"
+      email: "{{username}}@example.com"
+      roles: [employee]
+  shop-customer:
+    description: Shop customer
+    scopes: [pack:shop]
+    claims:
+      name: "{{username}}"
+      customer_id: "{{uuid}}"
+      loyalty_tier: gold
+  shop-staff:
+    description: Shop staff with refund rights
+    scopes: [pack:shop]
+    claims:
+      name: "{{username}}"
+      roles: [staff, refunds]
+  hr-manager:
+    description: Approves leave and contracts
+    scopes: [pack:hr]
+    claims:
+      name: "{{username}}"
+      department: Human Resources
+      roles: [hr.read, hr.write, leave.approve]

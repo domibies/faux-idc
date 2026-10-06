@@ -1,0 +1,214 @@
+import { readFileSync, statSync } from 'node:fs'
+import { parse } from 'yaml'
+import { scopeList } from './util.js'
+
+export interface ClaimSet {
+  description?: string
+  /** Scopes that select this claim set (e.g. a pack scope). Empty = offered when no such scope is requested. */
+  scopes: string[]
+  claims: Record<string, unknown>
+}
+
+export interface Client {
+  clientId: string
+  clientSecret?: string
+  /** Exact URIs, or a prefix ending in `*` (e.g. http://localhost:5173/*). Empty = allow any. */
+  redirectUris?: string[]
+}
+
+export interface EntraConfig {
+  tenantId: string
+  clientId: string
+  clientSecret: string
+  /** Login host, e.g. https://login.microsoftonline.us for sovereign clouds. */
+  authorityHost: string
+  /** Who may pass the gate. Empty lists = anyone who can sign in to the app registration. */
+  allowedUsers: string[]
+  allowedGroups: string[]
+  allowedRoles: string[]
+  /** Seconds the Entra verification is remembered before asking Microsoft again. */
+  sessionTtl: number
+  /** Keep grant_type=password (global passwords) working while the gate is on. */
+  allowPasswordGrant: boolean
+}
+
+export interface Config {
+  issuer?: string
+  /** Present only when the Entra gate is enabled. */
+  entra?: EntraConfig
+  passwords: string[]
+  claimSets: Record<string, ClaimSet>
+  clients: Client[]
+  accessTokenTtl: number
+  idTokenTtl: number
+  refreshTokenTtl: number
+  accessTokenAudience?: string | string[]
+}
+
+const CONFIG_PATH = process.env.CONFIG_PATH ?? '/config/config.yaml'
+
+const DEFAULTS: Config = {
+  passwords: ['password'],
+  claimSets: {
+    default: {
+      description: 'Built-in default',
+      scopes: [],
+      claims: { name: '{{username}}', email: '{{username}}@example.com' },
+    },
+  },
+  clients: [],
+  accessTokenTtl: 3600,
+  idTokenTtl: 3600,
+  refreshTokenTtl: 86400,
+}
+
+let current: Config | undefined
+let loadedMtime = -1
+
+function positiveInt(value: unknown, fallback: number, name: string): number {
+  if (value === undefined) return fallback
+  const n = Number(value)
+  if (!Number.isInteger(n) || n <= 0) throw new Error(`\`${name}\` must be a positive integer (seconds)`)
+  return n
+}
+
+const list = (v: unknown) => (Array.isArray(v) ? v.map(String) : [])
+
+function normalize(raw: any): Config {
+  if (!raw || typeof raw !== 'object') throw new Error('config root must be a map')
+
+  const passwords = (raw.passwords ?? (raw.entra?.enabled ? [] : DEFAULTS.passwords)) as unknown[]
+  if (!Array.isArray(passwords)) throw new Error('`passwords` must be a list')
+
+  const rawSets = raw.claimSets ?? DEFAULTS.claimSets
+  if (!rawSets || typeof rawSets !== 'object' || Object.keys(rawSets).length === 0) {
+    throw new Error('`claimSets` must be a non-empty map')
+  }
+  const claimSets: Record<string, ClaimSet> = {}
+  for (const [name, set] of Object.entries<any>(rawSets)) {
+    const claims = set?.claims ?? {}
+    if (typeof claims !== 'object' || Array.isArray(claims)) throw new Error(`claimSets.${name}.claims must be a map`)
+    if (set?.scopes !== undefined && !Array.isArray(set.scopes)) throw new Error(`claimSets.${name}.scopes must be a list`)
+    claimSets[name] = { description: set?.description ? String(set.description) : undefined, scopes: list(set?.scopes), claims }
+  }
+
+  const clients: Client[] = []
+  for (const cl of (raw.clients ?? []) as any[]) {
+    if (!cl?.clientId) throw new Error('every entry in `clients` needs a clientId')
+    clients.push({
+      clientId: String(cl.clientId),
+      clientSecret: cl.clientSecret !== undefined ? String(cl.clientSecret) : undefined,
+      redirectUris: list(cl.redirectUris),
+    })
+  }
+
+  return {
+    issuer: raw.issuer ? String(raw.issuer) : undefined,
+    passwords: passwords.map(String),
+    claimSets,
+    clients,
+    accessTokenTtl: positiveInt(raw.accessTokenTtl, DEFAULTS.accessTokenTtl, 'accessTokenTtl'),
+    idTokenTtl: positiveInt(raw.idTokenTtl, DEFAULTS.idTokenTtl, 'idTokenTtl'),
+    refreshTokenTtl: positiveInt(raw.refreshTokenTtl, DEFAULTS.refreshTokenTtl, 'refreshTokenTtl'),
+    accessTokenAudience: raw.accessTokenAudience,
+    entra: resolveEntra(raw.entra && typeof raw.entra === 'object' ? raw.entra : undefined),
+  }
+}
+
+/** Resolves the Entra section: file values first, ENTRA_* environment variables fill the gaps. */
+function resolveEntra(raw: any): EntraConfig | undefined {
+  const env = process.env
+  const enabled = env.ENTRA_ENABLED ? env.ENTRA_ENABLED === 'true' : raw?.enabled === true
+  if (!enabled) return undefined
+  const required = (key: 'tenantId' | 'clientId' | 'clientSecret', envName: string) => {
+    const value = String(raw?.[key] ?? env[envName] ?? '')
+    if (!value) throw new Error(`entra.${key} is required when the Entra gate is enabled (or set ${envName})`)
+    return value
+  }
+  return {
+    tenantId: required('tenantId', 'ENTRA_TENANT_ID'),
+    clientId: required('clientId', 'ENTRA_CLIENT_ID'),
+    clientSecret: required('clientSecret', 'ENTRA_CLIENT_SECRET'),
+    authorityHost: String(raw?.authorityHost ?? env.ENTRA_AUTHORITY_HOST ?? 'https://login.microsoftonline.com').replace(/\/+$/, ''),
+    allowedUsers: list(raw?.allowedUsers).map((u) => u.toLowerCase()),
+    allowedGroups: list(raw?.allowedGroups),
+    allowedRoles: list(raw?.allowedRoles),
+    sessionTtl: positiveInt(raw?.sessionTtl, 8 * 3600, 'entra.sessionTtl'),
+    allowPasswordGrant: raw?.allowPasswordGrant === true,
+  }
+}
+
+/** Environment variables always win over the file, so containers can be tweaked without editing it. */
+function applyEnv(cfg: Config): Config {
+  const out = { ...cfg }
+  out.issuer = (process.env.ISSUER || cfg.issuer)?.replace(/\/+$/, '')
+  if (process.env.PASSWORDS) out.passwords = process.env.PASSWORDS.split(',').map((p) => p.trim()).filter(Boolean)
+  if (!out.entra && out.passwords.length === 0) throw new Error('`passwords` must be a non-empty list (or enable the Entra gate)')
+  return out
+}
+
+function describe(cfg: Config) {
+  return `${Object.keys(cfg.claimSets).length} claim set(s) [${Object.keys(cfg.claimSets).join(', ')}], ` +
+    `${cfg.passwords.length} password(s), ${cfg.clients.length || 'any'} client(s)` +
+    (cfg.entra ? `, Entra gate ON (tenant ${cfg.entra.tenantId})` : '')
+}
+
+/** Validates a parsed config file and applies the environment variables. */
+export const parseConfig = (raw: unknown): Config => applyEnv(normalize(raw))
+
+/**
+ * The names of the claim sets that a request with this scope may use. Claim sets whose scopes match a
+ * requested scope win; without a match, only the claim sets that have no scopes are offered.
+ */
+export function claimSetsFor(cfg: Config, scope: string | undefined): string[] {
+  const requested = new Set(scopeList(scope))
+  const sets = Object.entries(cfg.claimSets)
+  const matching = sets.filter(([, set]) => set.scopes.some((s) => requested.has(s)))
+  return (matching.length ? matching : sets.filter(([, set]) => set.scopes.length === 0)).map(([name]) => name)
+}
+
+/** The claim set a request gets: `requested` if the scope allows it, else the first allowed one. */
+export function resolveClaimSet(cfg: Config, scope: string | undefined, requested?: string): { claimSet: string } | { error: string } {
+  const allowed = claimSetsFor(cfg, scope)
+  const claimSet = requested ?? allowed[0]
+  if (claimSet !== undefined && allowed.includes(claimSet)) return { claimSet }
+  return {
+    error: claimSet === undefined
+      ? `No claim set is available for scope "${scope ?? ''}"`
+      : `Claim set "${claimSet}" is not available for scope "${scope ?? ''}"`,
+  }
+}
+
+function load(raw: unknown, source: string) {
+  current = parseConfig(raw)
+  console.log(`[config] loaded ${source}: ${describe(current)}`)
+}
+
+/**
+ * Returns the active config. The file is re-read whenever its mtime changes, so edits
+ * (over ssh, a bind mount, a ConfigMap…) apply immediately without a restart.
+ * A broken file is reported and the last good config stays active.
+ */
+export function getConfig(): Config {
+  try {
+    const stat = statSync(CONFIG_PATH, { throwIfNoEntry: false })
+    if (stat) {
+      if (stat.mtimeMs !== loadedMtime) {
+        loadedMtime = stat.mtimeMs
+        load(parse(readFileSync(CONFIG_PATH, 'utf8')), CONFIG_PATH)
+      }
+    } else if (!current) {
+      if (process.env.CONFIG_YAML) {
+        load(parse(process.env.CONFIG_YAML), 'from CONFIG_YAML')
+      } else {
+        current = parseConfig({})
+        console.warn(`[config] ${CONFIG_PATH} not found, using built-in defaults: ${describe(current)}`)
+      }
+    }
+  } catch (err) {
+    // Fail closed on startup: never fall back to defaults (and possibly no Entra gate) silently.
+    if (!current) throw new Error(`[config] invalid configuration: ${(err as Error).message}`)
+    console.error(`[config] failed to load config: ${(err as Error).message} (keeping previous config)`)
+  }
+  return current!
+}

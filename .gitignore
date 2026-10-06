@@ -1,0 +1,5 @@
+node_modules
+dist
+deploy/azure/.signing-key.pem
+deploy/azure/.entra.env
+.DS_Store
