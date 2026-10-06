@@ -50,6 +50,7 @@ clients: []
 #  - clientId: ingest-job                   # service: client_credentials only
 #    clientSecret: s3cret
 #    claimSet: minimal                      # optional default claim set for client_credentials
+#    scopes: [api:write]                    # optional: only the clients that list a scope can request it
 
 # Named claim sets. Picked on the login screen (or via claim_set in the password and client_credentials grants).
 # String values support {{username}}, {{claimSet}} and {{uuid}} (stable UUID per username).

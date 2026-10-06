@@ -26,6 +26,7 @@ setup. faux-idc does only what an app needs to sign in:
 - **Named claim sets.** Define roles, groups and custom claims once in YAML, and select them on the form.
 - **Live claims preview.** The form shows the exact claims that go into the tokens before you sign in.
 - **Claim sets per scope.** An app can request a scope to get its own set of claim sets.
+- **Scopes owned by a client.** Keep a scope, for example a write scope, for one confidential client.
 - **Live configuration.** Edit `config.yaml` and the next sign-in uses it. You do not restart anything.
 - **Tokens for CI.** The password grant gives tokens to scripts and tests, without a browser.
 - **Tokens for services.** The client credentials grant gives a confidential client a token without a user.
@@ -98,6 +99,7 @@ a user token:
 - `sub` is the `client_id`, unless the claim set contains `sub`. In the claim values, `{{username}}`
   is the `client_id`. The token has no `preferred_username`.
 - The requested scope goes into the `scope` claim. `aud` is `accessTokenAudience` or the `client_id`.
+  To keep a scope for one client, see [scopes owned by a client](#scopes-owned-by-a-client).
 
 faux-idc selects the claim set in this order:
 
@@ -176,6 +178,32 @@ the `scope` claim of the access token. The home page shows the scopes of each cl
 <p align="center">
   <img src="docs/screenshots/home.png" alt="Home page with the claim sets, their scopes and the clients" width="400">
 </p>
+
+### Scopes owned by a client
+
+Any client can request any scope. To keep a scope for one client, add `scopes` to that client:
+
+```yaml
+clients:
+  - clientId: my-spa                # public client for people
+  - clientId: ingest-job            # confidential client for a service
+    clientSecret: s3cret
+    scopes: [api:write]
+```
+
+A scope that a client lists in `scopes` is *owned*. Only the clients that list an owned scope can
+request it. This applies to the sign-in form and to all grants. If another client requests an owned
+scope, faux-idc rejects the request with `invalid_scope`:
+
+- The sign-in form redirects to the `redirect_uri` with `error=invalid_scope`.
+- The token endpoint returns the HTTP status 400 with `error: invalid_scope`.
+
+In the example, `my-spa` cannot get a token with `api:write`, and `ingest-job` can. A scope that no
+client lists stays available to all clients. Thus, a configuration without `scopes` on its clients
+works as before. The discovery document lists the owned scopes in `scopes_supported`.
+
+Give owned scopes to a confidential client. A public client has no secret, so any app can send its
+`client_id` and get its owned scopes.
 
 ### Environment variables
 

@@ -154,9 +154,9 @@ export function homePage(cfg: Config, issuer: string) {
       ${Object.entries(cfg.claimSets).map(([n, s]) => html`<tr><td><code>${n}</code></td><td>${s.description ?? ''}</td><td>${s.scopes.map((sc) => html`<code>${sc}</code> `)}</td></tr>`)}
     </table>
     <table>
-      <tr><th>Clients</th></tr>
+      <tr><th>Clients</th><th>Owned scopes</th></tr>
       ${cfg.clients.length
-        ? cfg.clients.map((cl) => html`<tr><td><code>${cl.clientId}</code>${cl.clientSecret ? ' (confidential)' : ' (public)'}</td></tr>`)
-        : html`<tr><td>Any client_id and redirect_uri is accepted.</td></tr>`}
+        ? cfg.clients.map((cl) => html`<tr><td><code>${cl.clientId}</code>${cl.clientSecret ? ' (confidential)' : ' (public)'}</td><td>${cl.scopes.map((sc) => html`<code>${sc}</code> `)}</td></tr>`)
+        : html`<tr><td colspan="2">Any client_id and redirect_uri is accepted.</td></tr>`}
     </table>`)
 }
