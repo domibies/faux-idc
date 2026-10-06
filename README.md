@@ -137,7 +137,8 @@ All settings are in `config/config.yaml`. The comments in that file explain each
 
 **Changes apply live.** faux-idc reads the file again when it changes. On a server, edit
 `config/config.yaml` and save it; the next sign-in uses the new configuration. If the file is not
-valid, faux-idc logs the error and keeps the last valid configuration. Mount the *directory*
+valid, faux-idc logs the error and keeps the last valid configuration. This does not apply when
+`CONFIG_YAML` is set (see [Environment variables](#environment-variables)). Mount the *directory*
 (`./config:/config`), not the single file. Some editors (for example vim) replace the file on save,
 and a single-file bind mount does not show that change.
 
@@ -183,7 +184,7 @@ the `scope` claim of the access token. The home page shows the scopes of each cl
 |---|---|---|
 | `PORT` | `8080` | Listen port |
 | `CONFIG_PATH` | `/config/config.yaml` | Location of the configuration file |
-| `CONFIG_YAML` | – | Inline YAML. faux-idc uses it when the configuration file does not exist (useful for Kubernetes or CI) |
+| `CONFIG_YAML` | – | Inline YAML. When it is set, faux-idc uses it and does not read the file at `CONFIG_PATH`. faux-idc reads it once at startup, so a change needs a restart (useful for Kubernetes or CI) |
 | `ISSUER` | from file, else from the request | Replaces `issuer` |
 | `PASSWORDS` | from file | Comma-separated list. Replaces `passwords` |
 | `SIGNING_KEY_PATH` | `/data/signing-key.pem` | RSA signing key. faux-idc creates it at the first start, so tokens stay valid after a restart |

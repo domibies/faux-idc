@@ -225,12 +225,17 @@ function load(raw: unknown, source: string) {
 }
 
 /**
- * Returns the active config. The file is re-read whenever its mtime changes, so edits
- * (over ssh, a bind mount, a ConfigMap…) apply immediately without a restart.
+ * Returns the active config. CONFIG_YAML, when set, wins over the file and is read once.
+ * Otherwise the file is re-read whenever its mtime changes, so edits (over ssh, a bind mount,
+ * a ConfigMap…) apply immediately without a restart.
  * A broken file is reported and the last good config stays active.
  */
 export function getConfig(): Config {
   try {
+    if (process.env.CONFIG_YAML) {
+      if (!current) load(parse(process.env.CONFIG_YAML), `from CONFIG_YAML (${CONFIG_PATH} is not read)`)
+      return current!
+    }
     const stat = statSync(CONFIG_PATH, { throwIfNoEntry: false })
     if (stat) {
       if (stat.mtimeMs !== loadedMtime) {
@@ -238,12 +243,8 @@ export function getConfig(): Config {
         load(parse(readFileSync(CONFIG_PATH, 'utf8')), CONFIG_PATH)
       }
     } else if (!current) {
-      if (process.env.CONFIG_YAML) {
-        load(parse(process.env.CONFIG_YAML), 'from CONFIG_YAML')
-      } else {
-        current = parseConfig({})
-        console.warn(`[config] ${CONFIG_PATH} not found, using built-in defaults: ${describe(current)}`)
-      }
+      current = parseConfig({})
+      console.warn(`[config] ${CONFIG_PATH} not found, using built-in defaults: ${describe(current)}`)
     }
   } catch (err) {
     // Fail closed on startup: never fall back to defaults (and possibly no Entra gate) silently.
