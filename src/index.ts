@@ -6,7 +6,7 @@ import { logger } from 'hono/logger'
 import { jwtVerify, SignJWT } from 'jose'
 import { timingSafeEqual } from 'node:crypto'
 import { renderClaims, uuidFrom } from './claims.js'
-import { claimSetsFor, getConfig, resolveClaimSet, type Client, type Config } from './config.js'
+import { claimSetsFor, getConfig, resolveClaimSet, scopeError, type Client, type Config } from './config.js'
 import {
   clearEntraSession, getEntraSession, handleEntraCallback, initEntra, safeReturnTo, startEntraLogin,
   type EntraIdentity,
@@ -79,7 +79,7 @@ const passwordOk = (cfg: Config, pw: string | undefined) => !!pw && cfg.password
 /** With no clients configured, every client_id is accepted as a public client. */
 function findClient(cfg: Config, clientId: string | undefined): Client | undefined {
   if (!clientId) return undefined
-  if (cfg.clients.length === 0) return { clientId }
+  if (cfg.clients.length === 0) return { clientId, scopes: [] }
   return cfg.clients.find((cl) => cl.clientId === clientId)
 }
 
@@ -109,6 +109,10 @@ function validateAuthRequest(cfg: Config, p: AuthParams): string | undefined {
   }
   return undefined
 }
+
+/** Sends an OAuth error back to the client. Use it only after the redirect_uri is validated. */
+const redirectError = (c: Context, p: AuthParams, error: string, description?: string) =>
+  c.redirect(withParams(p.redirect_uri!, { error, error_description: description, state: p.state }))
 
 /** With the Entra gate on: the verified identity, or a redirect to Microsoft sign-in when there is none yet. */
 async function entraGate(c: Context, cfg: Config, returnTo: string): Promise<EntraIdentity | Response | undefined> {
@@ -221,6 +225,7 @@ app.get('/.well-known/openid-configuration', (c) => {
     Object.keys(set.claims).forEach((k) => claimNames.add(k))
     set.scopes.forEach((s) => scopes.add(s))
   }
+  for (const cl of cfg.clients) cl.scopes.forEach((s) => scopes.add(s))
   return c.json({
     issuer: iss,
     authorization_endpoint: `${iss}/authorize`,
@@ -261,12 +266,10 @@ app.get('/authorize', async (c) => {
   const p = pickAuthParams(c.req.query())
   const error = validateAuthRequest(cfg, p)
   if (error) return c.html(messagePage('Sign-in request rejected', error), 400)
-  if (p.response_type !== 'code') {
-    return c.redirect(withParams(p.redirect_uri!, { error: 'unsupported_response_type', state: p.state }))
-  }
-  if (p.prompt === 'none') {
-    return c.redirect(withParams(p.redirect_uri!, { error: 'login_required', state: p.state }))
-  }
+  if (p.response_type !== 'code') return redirectError(c, p, 'unsupported_response_type')
+  const scopeRejected = scopeError(cfg, p.client_id!, p.scope)
+  if (scopeRejected) return redirectError(c, p, 'invalid_scope', scopeRejected)
+  if (p.prompt === 'none') return redirectError(c, p, 'login_required')
   const entra = await entraGate(c, cfg, authorizePath(p))
   if (entra instanceof Response) return entra
   return c.html(loginPage({
@@ -284,6 +287,8 @@ app.post('/authorize', async (c) => {
   const p = pickAuthParams(form)
   const requestError = validateAuthRequest(cfg, p)
   if (requestError) return c.html(messagePage('Sign-in request rejected', requestError), 400)
+  const scopeRejected = scopeError(cfg, p.client_id!, p.scope)
+  if (scopeRejected) return redirectError(c, p, 'invalid_scope', scopeRejected)
 
   const entra = await entraGate(c, cfg, authorizePath(p))
   if (entra instanceof Response) return entra
@@ -362,6 +367,8 @@ app.post('/token', async (c) => {
       const username = form.username?.trim()
       const scope = form.scope ?? DEFAULT_SCOPE
       if (!username || !passwordOk(cfg, form.password)) return oauthError(c, 'invalid_grant', 'Invalid username or password')
+      const scopeRejected = scopeError(cfg, client.clientId, scope)
+      if (scopeRejected) return oauthError(c, 'invalid_scope', scopeRejected)
       const resolved = resolveClaimSet(cfg, scope, form.claim_set)
       if ('error' in resolved) return oauthError(c, 'invalid_request', resolved.error)
       session = { username, claimSet: resolved.claimSet, scope, authTime: now() }
@@ -375,6 +382,8 @@ app.post('/token', async (c) => {
         return oauthError(c, 'unauthorized_client', `Client "${client.clientId}" has no clientSecret; client_credentials needs a confidential client`)
       }
       const scope = form.scope ?? ''
+      const scopeRejected = scopeError(cfg, client.clientId, scope)
+      if (scopeRejected) return oauthError(c, 'invalid_scope', scopeRejected)
       const resolved = resolveClaimSet(cfg, scope, form.claim_set ?? client.claimSet)
       if ('error' in resolved) return oauthError(c, 'invalid_scope', resolved.error)
       return c.json(await issueClientToken(cfg, iss, client.clientId, resolved.claimSet, scope))
@@ -385,6 +394,8 @@ app.post('/token', async (c) => {
   }
 
   // The config can change between sign-in and token exchange.
+  const scopeRejected = scopeError(cfg, client.clientId, session.scope)
+  if (scopeRejected) return oauthError(c, 'invalid_scope', scopeRejected)
   const resolved = resolveClaimSet(cfg, session.scope, session.claimSet)
   if ('error' in resolved) return oauthError(c, 'invalid_grant', resolved.error)
   return c.json(await issueTokens(cfg, iss, client.clientId, session))

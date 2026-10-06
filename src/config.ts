@@ -16,6 +16,8 @@ export interface Client {
   redirectUris?: string[]
   /** Default claim set for client_credentials tokens. */
   claimSet?: string
+  /** Scopes this client owns: only the clients that list a scope may request it. */
+  scopes: string[]
 }
 
 /**
@@ -109,11 +111,13 @@ function normalize(raw: any): Config {
   for (const cl of (raw.clients ?? []) as any[]) {
     if (!cl?.clientId) throw new Error('every entry in `clients` needs a clientId')
     if (cl.claimSet !== undefined && !claimSets[cl.claimSet]) throw new Error(`clients[${cl.clientId}].claimSet "${cl.claimSet}" is not a claim set`)
+    if (cl.scopes !== undefined && !Array.isArray(cl.scopes)) throw new Error(`clients[${cl.clientId}].scopes must be a list`)
     clients.push({
       clientId: String(cl.clientId),
       clientSecret: cl.clientSecret !== undefined ? String(cl.clientSecret) : undefined,
       redirectUris: list(cl.redirectUris),
       claimSet: cl.claimSet !== undefined ? String(cl.claimSet) : undefined,
+      scopes: list(cl.scopes),
     })
   }
 
@@ -205,6 +209,16 @@ export function claimSetsFor(cfg: Config, scope: string | undefined): string[] {
   const sets = Object.entries(cfg.claimSets)
   const matching = sets.filter(([, set]) => set.scopes.some((s) => requested.has(s)))
   return (matching.length ? matching : sets.filter(([, set]) => set.scopes.length === 0)).map(([name]) => name)
+}
+
+/**
+ * Why this client may not request this scope, or undefined when it may. A scope that a client lists in
+ * its `scopes` is restricted to the clients that list it; a scope that no client lists is free.
+ */
+export function scopeError(cfg: Config, clientId: string, scope: string | undefined): string | undefined {
+  const owned = scopeList(scope).find((s) => cfg.clients.some((cl) => cl.scopes.includes(s)) &&
+    !cfg.clients.some((cl) => cl.clientId === clientId && cl.scopes.includes(s)))
+  return owned && `Client "${clientId}" may not request scope "${owned}"`
 }
 
 /** The claim set a request gets: `requested` if the scope allows it, else the first allowed one. */
