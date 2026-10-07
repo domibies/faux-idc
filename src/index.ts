@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
-import { jwtVerify, SignJWT } from 'jose'
+import { compactVerify, jwtVerify, SignJWT } from 'jose'
 import { timingSafeEqual } from 'node:crypto'
 import { renderClaims, uuidFrom } from './claims.js'
 import { claimSetsFor, getConfig, resolveClaimSet, scopeError, type Client, type Config } from './config.js'
@@ -83,10 +83,13 @@ function findClient(cfg: Config, clientId: string | undefined): Client | undefin
   return cfg.clients.find((cl) => cl.clientId === clientId)
 }
 
-function redirectAllowed(client: Client, uri: string): boolean {
-  if (!client.redirectUris?.length) return true
-  return client.redirectUris.some((p) => (p.endsWith('*') ? uri.startsWith(p.slice(0, -1)) : p === uri))
+/** Exact URIs, or a prefix ending in `*`. An empty list allows any URI. */
+function uriAllowed(patterns: string[] | undefined, uri: string): boolean {
+  if (!patterns?.length) return true
+  return patterns.some((p) => (p.endsWith('*') ? uri.startsWith(p.slice(0, -1)) : p === uri))
 }
+
+const redirectAllowed = (client: Client, uri: string) => uriAllowed(client.redirectUris, uri)
 
 function withParams(uri: string, params: Record<string, string | undefined>): string {
   const u = new URL(uri)
@@ -447,10 +450,50 @@ const userinfo = async (c: Context) => {
 }
 app.on(['GET', 'POST'], '/userinfo', userinfo)
 
-app.get('/logout', (c) => {
-  const { post_logout_redirect_uri: target, state } = c.req.query()
+/** The client_id that an ID token was issued to. Expired tokens are fine: a logout often comes after expiry. */
+async function idTokenClient(idTokenHint: string): Promise<string | undefined> {
+  try {
+    const { payload } = await compactVerify(idTokenHint, keys.publicKey)
+    const aud = JSON.parse(new TextDecoder().decode(payload)).aud
+    return Array.isArray(aud) ? aud[0] : aud
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Returns why the post_logout_redirect_uri is rejected, or undefined when it is valid.
+ * The client comes from client_id or id_token_hint. Without either, the URI must be allowed for some client.
+ */
+async function validateLogoutRequest(cfg: Config, q: Record<string, string>, target: string): Promise<string | undefined> {
+  try { new URL(target) } catch { return `post_logout_redirect_uri "${target}" is not a valid URL.` }
+  let clientId = q.client_id
+  if (q.id_token_hint) {
+    const hinted = await idTokenClient(q.id_token_hint)
+    if (!hinted) return 'The id_token_hint is not valid. Use an ID token that this server issued.'
+    if (clientId && clientId !== hinted) return `The id_token_hint was not issued to client "${clientId}".`
+    clientId = hinted
+  }
+  if (cfg.clients.length === 0) return undefined
+  if (!clientId) {
+    if (cfg.clients.some((cl) => uriAllowed(cl.postLogoutRedirectUris, target))) return undefined
+    return `post_logout_redirect_uri "${target}" is not registered for any client. Add it to the postLogoutRedirectUris of a client.`
+  }
+  const client = findClient(cfg, clientId)
+  if (!client) return `Client "${clientId}" is not configured. Add it under clients in config.yaml.`
+  if (!uriAllowed(client.postLogoutRedirectUris, target)) {
+    return `post_logout_redirect_uri "${target}" is not allowed for client "${clientId}". Add it to its postLogoutRedirectUris.`
+  }
+  return undefined
+}
+
+app.get('/logout', async (c) => {
+  const q = c.req.query()
+  const { post_logout_redirect_uri: target, state } = q
   if (target) {
-    try { return c.redirect(withParams(target, { state })) } catch { /* fall through */ }
+    const error = await validateLogoutRequest(getConfig(), q, target)
+    if (error) return c.html(messagePage('Sign-out request rejected', error), 400)
+    return c.redirect(withParams(target, { state }))
   }
   return c.html(messagePage('Signed out', 'You are signed out of the mock identity provider.'))
 })

@@ -57,6 +57,7 @@ Configure your app as for any OIDC provider:
 | Client ID | Any value. If you configure `clients`, use one of those |
 | Client secret | None. If you configure a secret for the client, use that secret |
 | Redirect URI | Any value. If you configure `redirectUris` for the client, use one of those |
+| Post-logout redirect URI | Any value. If you configure `postLogoutRedirectUris` for the client, use one of those |
 | Scopes | `openid profile`, plus a pack scope if you use [claim sets per scope](#claim-sets-per-scope) |
 | Sign-in password | `letmein` or `test123` in the sample configuration |
 
@@ -206,6 +207,30 @@ works as before. The discovery document lists the owned scopes in `scopes_suppor
 Give owned scopes to a confidential client. A public client has no secret, so any app can send its
 `client_id` and get its owned scopes.
 
+### Post-logout redirect URIs
+
+Entra ID and OpenIddict reject a `post_logout_redirect_uri` that is not registered for the client.
+To get the same check in faux-idc, add `postLogoutRedirectUris` to the client:
+
+```yaml
+clients:
+  - clientId: my-spa
+    redirectUris: ["http://localhost:5173/*"]
+    postLogoutRedirectUris: ["http://localhost:5173/signed-out"]
+```
+
+The values are exact URIs, or a prefix that ends in `*`, as in `redirectUris`. faux-idc finds the
+client of a logout request from `client_id` or from `id_token_hint`. The ID token in the hint can be
+expired, but faux-idc must have signed it. If faux-idc cannot find a client, the URI must be allowed
+for at least one client.
+
+If the URI is not allowed, `/logout` does not redirect. It shows an error page with the HTTP status
+400. Thus, an end-to-end test finds a deployment that did not register its sign-out page.
+
+A client without `postLogoutRedirectUris` accepts all URIs, as in earlier versions. Thus, `/logout`
+is an open redirect while one client has no `postLogoutRedirectUris`. To close it, configure the
+list on all clients.
+
 ### Environment variables
 
 | Variable | Default | Purpose |
@@ -227,7 +252,7 @@ Give owned scopes to a confidential client. A public client has no secret, so an
 | `/authorize` | Authorization code flow, PKCE (S256/plain), `state`, `nonce`, `login_hint`, `prompt=none` → `login_required` |
 | `/token` | `authorization_code`, `refresh_token` (rotating), `password`, `client_credentials` |
 | `/userinfo` | Claims from the bearer access token |
-| `/logout` | Redirects to `post_logout_redirect_uri` with `state` |
+| `/logout` | Redirects to `post_logout_redirect_uri` with `state`, after a check against [`postLogoutRedirectUris`](#post-logout-redirect-uris). Takes `client_id` and `id_token_hint` |
 
 ## Notes
 
@@ -240,7 +265,7 @@ Give owned scopes to a confidential client. A public client has no secret, so an
   same hostname for both.
 - Codes and refresh tokens are in memory. A restart makes all refresh tokens invalid. Access tokens
   stay valid if the signing key is persistent.
-- With `clients: []`, faux-idc accepts all values of `client_id` and `redirect_uri`, and does not check a secret.
+- With `clients: []`, faux-idc accepts all values of `client_id`, `redirect_uri` and `post_logout_redirect_uri`, and does not check a secret.
   All clients are then public, so the client credentials grant is not available.
 - All claims of a claim set go into the ID token, the access token and userinfo. The requested scope
   selects the claim sets, but it does not filter the claims in them.

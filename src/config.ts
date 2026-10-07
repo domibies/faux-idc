@@ -14,6 +14,8 @@ export interface Client {
   clientSecret?: string
   /** Exact URIs, or a prefix ending in `*` (e.g. http://localhost:5173/*). Empty = allow any. */
   redirectUris?: string[]
+  /** Allowed post_logout_redirect_uri values, matched like redirectUris. Empty = allow any. */
+  postLogoutRedirectUris?: string[]
   /** Default claim set for client_credentials tokens. */
   claimSet?: string
   /** Scopes this client owns: only the clients that list a scope may request it. */
@@ -112,10 +114,14 @@ function normalize(raw: any): Config {
     if (!cl?.clientId) throw new Error('every entry in `clients` needs a clientId')
     if (cl.claimSet !== undefined && !claimSets[cl.claimSet]) throw new Error(`clients[${cl.clientId}].claimSet "${cl.claimSet}" is not a claim set`)
     if (cl.scopes !== undefined && !Array.isArray(cl.scopes)) throw new Error(`clients[${cl.clientId}].scopes must be a list`)
+    if (cl.postLogoutRedirectUris !== undefined && !Array.isArray(cl.postLogoutRedirectUris)) {
+      throw new Error(`clients[${cl.clientId}].postLogoutRedirectUris must be a list`)
+    }
     clients.push({
       clientId: String(cl.clientId),
       clientSecret: cl.clientSecret !== undefined ? String(cl.clientSecret) : undefined,
       redirectUris: list(cl.redirectUris),
+      postLogoutRedirectUris: list(cl.postLogoutRedirectUris),
       claimSet: cl.claimSet !== undefined ? String(cl.claimSet) : undefined,
       scopes: list(cl.scopes),
     })

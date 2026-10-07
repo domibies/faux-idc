@@ -39,11 +39,12 @@ refreshTokenTtl: 86400
 # Audience for access tokens (defaults to the client_id). A claim set can override with `aud`.
 # accessTokenAudience: api://my-api
 
-# Leave empty to accept any client_id and redirect_uri.
+# Leave empty to accept any client_id, redirect_uri and post_logout_redirect_uri.
 # A client with a clientSecret (confidential) can also use grant_type=client_credentials.
 clients: []
 #  - clientId: my-spa                       # public client, use PKCE
 #    redirectUris: ["http://localhost:5173/*"]
+#    postLogoutRedirectUris: ["http://localhost:5173/signed-out"]   # optional: empty = allow any
 #  - clientId: my-backend                   # confidential client
 #    clientSecret: s3cret
 #    redirectUris: ["http://localhost:3000/auth/callback"]
