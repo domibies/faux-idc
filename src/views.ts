@@ -82,6 +82,7 @@ export function loginPage(o: {
   const sets = claimSets.map((name) => [name, o.cfg.claimSets[name]] as const)
   const selected = o.claimSet && claimSets.includes(o.claimSet) ? o.claimSet : claimSets[0]
   const descriptions = JSON.stringify(Object.fromEntries(sets.map(([n, s]) => [n, s.description ?? '']))).replace(/</g, '\\u003c')
+  const clientName = o.cfg.clients.find((cl) => cl.clientId === o.params.client_id)?.name
   const hidden = Object.entries(o.params).filter(([, v]) => v !== undefined)
   const switchUrl = `/entra/switch?return=${encodeURIComponent(authorizePath(o.params))}`
   const note = o.entra
@@ -90,7 +91,7 @@ export function loginPage(o: {
 
   return layout('Sign in – faux-idc', note, html`
     <h1>Sign in</h1>
-    <p class="sub">Continue to <code>${o.params.client_id}</code></p>
+    <p class="sub">Continue to ${clientName ? html`<strong>${clientName}</strong>` : html`<code>${o.params.client_id}</code>`}</p>
     ${o.error ? html`<p class="error" role="alert">${o.error}</p>` : ''}
     <form method="post" action="/authorize">
       ${hidden.map(([k, v]) => html`<input type="hidden" name="${k}" value="${v}">`)}

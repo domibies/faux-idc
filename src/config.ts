@@ -11,6 +11,8 @@ export interface ClaimSet {
 
 export interface Client {
   clientId: string
+  /** Display name on the sign-in form, like the name of an Entra app registration. */
+  name?: string
   clientSecret?: string
   /** Exact URIs, or a prefix ending in `*` (e.g. http://localhost:5173/*). Empty = allow any. */
   redirectUris?: string[]
@@ -113,12 +115,14 @@ function normalize(raw: any): Config {
   for (const cl of (raw.clients ?? []) as any[]) {
     if (!cl?.clientId) throw new Error('every entry in `clients` needs a clientId')
     if (cl.claimSet !== undefined && !claimSets[cl.claimSet]) throw new Error(`clients[${cl.clientId}].claimSet "${cl.claimSet}" is not a claim set`)
+    if (cl.name !== undefined && typeof cl.name !== 'string') throw new Error(`clients[${cl.clientId}].name must be a string`)
     if (cl.scopes !== undefined && !Array.isArray(cl.scopes)) throw new Error(`clients[${cl.clientId}].scopes must be a list`)
     if (cl.postLogoutRedirectUris !== undefined && !Array.isArray(cl.postLogoutRedirectUris)) {
       throw new Error(`clients[${cl.clientId}].postLogoutRedirectUris must be a list`)
     }
     clients.push({
       clientId: String(cl.clientId),
+      name: cl.name || undefined,
       clientSecret: cl.clientSecret !== undefined ? String(cl.clientSecret) : undefined,
       redirectUris: list(cl.redirectUris),
       postLogoutRedirectUris: list(cl.postLogoutRedirectUris),

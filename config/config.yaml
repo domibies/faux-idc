@@ -43,6 +43,7 @@ refreshTokenTtl: 86400
 # A client with a clientSecret (confidential) can also use grant_type=client_credentials.
 clients: []
 #  - clientId: my-spa                       # public client, use PKCE
+#    name: My SPA                           # optional: shown on the sign-in form instead of the clientId
 #    redirectUris: ["http://localhost:5173/*"]
 #    postLogoutRedirectUris: ["http://localhost:5173/signed-out"]   # optional: empty = allow any
 #  - clientId: my-backend                   # confidential client
