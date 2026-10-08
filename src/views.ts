@@ -157,7 +157,7 @@ export function homePage(cfg: Config, issuer: string) {
     <table>
       <tr><th>Clients</th><th>Owned scopes</th></tr>
       ${cfg.clients.length
-        ? cfg.clients.map((cl) => html`<tr><td><code>${cl.clientId}</code>${cl.clientSecret ? ' (confidential)' : ' (public)'}</td><td>${cl.scopes.map((sc) => html`<code>${sc}</code> `)}</td></tr>`)
+        ? cfg.clients.map((cl) => html`<tr><td>${cl.name ? html`${cl.name}<br>` : ''}<code>${cl.clientId}</code>${cl.clientSecret ? ' (confidential)' : ' (public)'}</td><td>${cl.scopes.map((sc) => html`<code>${sc}</code> `)}</td></tr>`)
         : html`<tr><td colspan="2">Any client_id and redirect_uri is accepted.</td></tr>`}
     </table>`)
 }

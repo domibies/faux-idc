@@ -2,6 +2,7 @@
 passwords: [letmein]
 clients:
   - clientId: assistant
+    name: Shopping assistant
     redirectUris: ["http://localhost:3000/*"]
   - clientId: backoffice-api
     clientSecret: s3cret

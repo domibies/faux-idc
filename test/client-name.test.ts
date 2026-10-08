@@ -33,6 +33,18 @@ describe('the sign-in form', () => {
   })
 })
 
+describe('the home page', () => {
+  test('shows the name above the client_id of a client that has one', async () => {
+    const page = await (await fetch(`${base}/`)).text()
+    assert.match(page, /<td>Bo &lt;Portal&gt;<br><code>3f2a9c1e-spa<\/code>/)
+  })
+
+  test('shows only the client_id of a client without a name', async () => {
+    const page = await (await fetch(`${base}/`)).text()
+    assert.match(page, /<td><code>bo-backend<\/code>/)
+  })
+})
+
 describe('the name in the config', () => {
   test('is optional', () => {
     assert.equal(parseConfig({ clients: [{ clientId: 'a' }] }).clients[0].name, undefined)
