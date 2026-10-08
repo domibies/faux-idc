@@ -207,6 +207,20 @@ works as before. The discovery document lists the owned scopes in `scopes_suppor
 Give owned scopes to a confidential client. A public client has no secret, so any app can send its
 `client_id` and get its owned scopes.
 
+### Client names
+
+Entra ID shows the name of the app registration on its sign-in page. To get the same in faux-idc,
+add `name` to the client:
+
+```yaml
+clients:
+  - clientId: 3f2a9c1e-0b7d-4e55-9a61-2c8f1d4b7e90
+    name: Shop portal
+```
+
+The sign-in form then shows "Continue to **Shop portal**". A client without `name` shows its
+`client_id`.
+
 ### Post-logout redirect URIs
 
 Entra ID and OpenIddict reject a `post_logout_redirect_uri` that is not registered for the client.
