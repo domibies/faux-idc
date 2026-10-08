@@ -219,7 +219,7 @@ clients:
 ```
 
 The sign-in form then shows "Continue to **Shop portal**". A client without `name` shows its
-`client_id`.
+`client_id`. The home page shows the name above the `client_id`.
 
 ### Post-logout redirect URIs
 
