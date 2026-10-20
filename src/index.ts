@@ -6,7 +6,7 @@ import { logger } from 'hono/logger'
 import { compactVerify, jwtVerify, SignJWT } from 'jose'
 import { timingSafeEqual } from 'node:crypto'
 import { renderClaims, uuidFrom } from './claims.js'
-import { claimSetsFor, getConfig, resolveClaimSet, scopeError, type Client, type Config } from './config.js'
+import { claimSetsFor, getConfig, resolveClaimSet, scopeError, visibleClaimSets, type Client, type Config } from './config.js'
 import {
   clearEntraSession, getEntraSession, handleEntraCallback, initEntra, safeReturnTo, startEntraLogin,
   type EntraIdentity,
@@ -262,6 +262,14 @@ app.get('/claims-preview', async (c) => {
   return c.json(effectiveClaims(cfg, c.req.query('username')?.trim() || 'username', set, entra).profile)
 })
 
+// Used by the login page to update the claim set list for the typed username (hidden claim sets).
+app.get('/claim-sets', async (c) => {
+  const cfg = getConfig()
+  if (cfg.entra && !(await getEntraSession(c))) return c.json({ error: 'not signed in' }, 401)
+  const names = visibleClaimSets(cfg, c.req.query('scope'), c.req.query('username') ?? '')
+  return c.json(names.map((name) => ({ name, description: cfg.claimSets[name].description ?? '' })))
+})
+
 app.on('GET', ['/.well-known/jwks.json', '/jwks'], (c) => c.json({ keys: [keys.publicJwk] }))
 
 app.get('/authorize', async (c) => {
@@ -301,6 +309,7 @@ app.post('/authorize', async (c) => {
   const resolved = resolveClaimSet(cfg, p.scope, claimSet)
   let error: string | undefined
   if (!username) error = 'Enter a username.'
+  else if (!claimSet) error = 'No claim set is available for this username. Try another username.'
   else if ('error' in resolved) error = `${resolved.error}. Pick another one.`
   else if (!entra && !passwordOk(cfg, form.password)) error = 'That password is not one of the configured passwords.'
   if (error) return c.html(loginPage({ cfg, params: p, username, claimSet, error, entra }), 401)

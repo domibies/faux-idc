@@ -6,6 +6,8 @@ export interface ClaimSet {
   description?: string
   /** Scopes that select this claim set (e.g. a pack scope). Empty = offered when no such scope is requested. */
   scopes: string[]
+  /** Lowercase usernames that see this claim set on the sign-in form. Empty = everyone sees it. */
+  usernames: string[]
   claims: Record<string, unknown>
 }
 
@@ -72,6 +74,7 @@ const DEFAULTS: Config = {
     default: {
       description: 'Built-in default',
       scopes: [],
+      usernames: [],
       claims: { name: '{{username}}', email: '{{username}}@example.com' },
     },
   },
@@ -108,7 +111,13 @@ function normalize(raw: any): Config {
     const claims = set?.claims ?? {}
     if (typeof claims !== 'object' || Array.isArray(claims)) throw new Error(`claimSets.${name}.claims must be a map`)
     if (set?.scopes !== undefined && !Array.isArray(set.scopes)) throw new Error(`claimSets.${name}.scopes must be a list`)
-    claimSets[name] = { description: set?.description ? String(set.description) : undefined, scopes: list(set?.scopes), claims }
+    if (set?.usernames !== undefined && !Array.isArray(set.usernames)) throw new Error(`claimSets.${name}.usernames must be a list`)
+    claimSets[name] = {
+      description: set?.description ? String(set.description) : undefined,
+      scopes: list(set?.scopes),
+      usernames: list(set?.usernames).map((u) => u.trim().toLowerCase()),
+      claims,
+    }
   }
 
   const clients: Client[] = []
@@ -219,6 +228,19 @@ export function claimSetsFor(cfg: Config, scope: string | undefined): string[] {
   const sets = Object.entries(cfg.claimSets)
   const matching = sets.filter(([, set]) => set.scopes.some((s) => requested.has(s)))
   return (matching.length ? matching : sets.filter(([, set]) => set.scopes.length === 0)).map(([name]) => name)
+}
+
+/**
+ * The claim sets that the sign-in form offers to this username: the claim sets of the scope, without the
+ * hidden ones (with `usernames`) that the username does not unlock. Hiding is cosmetic: the grants still
+ * accept a hidden claim set for any username.
+ */
+export function visibleClaimSets(cfg: Config, scope: string | undefined, username: string): string[] {
+  const user = username.trim().toLowerCase()
+  return claimSetsFor(cfg, scope).filter((name) => {
+    const { usernames } = cfg.claimSets[name]
+    return usernames.length === 0 || usernames.includes(user)
+  })
 }
 
 /**

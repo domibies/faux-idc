@@ -1,5 +1,5 @@
 import { html, raw } from 'hono/html'
-import { claimSetsFor, type Config } from './config.js'
+import { visibleClaimSets, type Config } from './config.js'
 import type { EntraIdentity } from './entra.js'
 import { authorizePath } from './util.js'
 
@@ -78,10 +78,11 @@ export function loginPage(o: {
   /** Set when the Entra gate is on: replaces the password field. */
   entra?: EntraIdentity
 }) {
-  const claimSets = claimSetsFor(o.cfg, o.params.scope)
+  const claimSets = visibleClaimSets(o.cfg, o.params.scope, o.username)
   const sets = claimSets.map((name) => [name, o.cfg.claimSets[name]] as const)
   const selected = o.claimSet && claimSets.includes(o.claimSet) ? o.claimSet : claimSets[0]
-  const descriptions = JSON.stringify(Object.fromEntries(sets.map(([n, s]) => [n, s.description ?? '']))).replace(/</g, '\\u003c')
+  const json = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c')
+  const descriptions = json(Object.fromEntries(sets.map(([n, s]) => [n, s.description ?? ''])))
   const clientName = o.cfg.clients.find((cl) => cl.clientId === o.params.client_id)?.name
   const hidden = Object.entries(o.params).filter(([, v]) => v !== undefined)
   const switchUrl = `/entra/switch?return=${encodeURIComponent(authorizePath(o.params))}`
@@ -103,7 +104,7 @@ export function loginPage(o: {
         <select name="claim_set" id="claim_set">
           ${sets.map(([n]) => html`<option value="${n}" ${n === selected ? raw('selected') : ''}>${n}</option>`)}
         </select>
-        <span class="hint" id="set_description">${o.cfg.claimSets[selected].description ?? ''}</span>
+        <span class="hint" id="set_description">${(selected && o.cfg.claimSets[selected].description) ?? ''}</span>
       </label>
       <details>
         <summary>Preview token claims</summary>
@@ -117,25 +118,43 @@ export function loginPage(o: {
     <script>
       (function () {
         var descriptions = ${raw(descriptions)};
+        var scope = ${raw(json(o.params.scope ?? ''))};
         var sel = document.getElementById('claim_set');
         var user = document.querySelector('input[name=username]');
         var out = document.getElementById('preview');
         var desc = document.getElementById('set_description');
         var timer, seq = 0;
-        function render() {
-          desc.textContent = descriptions[sel.value] || '';
+        function json(r) { return r.json(); }
+        // Rebuilds the claim set list: a hidden claim set appears only for its usernames. Keeps the selection.
+        function fill(sets) {
+          var current = sel.value;
+          sel.textContent = '';
+          sets.forEach(function (s) {
+            descriptions[s.name] = s.description;
+            sel.add(new Option(s.name, s.name, false, s.name === current));
+          });
+        }
+        function update(refreshSets) {
           clearTimeout(timer);
           timer = setTimeout(function () {
             var mine = ++seq;
-            fetch('/claims-preview?claim_set=' + encodeURIComponent(sel.value) + '&username=' + encodeURIComponent(user.value))
-              .then(function (r) { return r.json(); })
-              .then(function (claims) { if (mine === seq) out.textContent = JSON.stringify(claims, null, 2); })
-              .catch(function () { out.textContent = 'Preview unavailable.'; });
+            var sets = refreshSets
+              ? fetch('/claim-sets?scope=' + encodeURIComponent(scope) + '&username=' + encodeURIComponent(user.value)).then(json)
+              : Promise.resolve(null);
+            sets.then(function (list) {
+              if (mine !== seq) return;
+              if (list) fill(list);
+              desc.textContent = descriptions[sel.value] || '';
+              if (!sel.value) { out.textContent = ''; return; }
+              return fetch('/claims-preview?claim_set=' + encodeURIComponent(sel.value) + '&username=' + encodeURIComponent(user.value))
+                .then(json)
+                .then(function (claims) { if (mine === seq) out.textContent = JSON.stringify(claims, null, 2); });
+            }).catch(function () { out.textContent = 'Preview unavailable.'; });
           }, 150);
         }
-        sel.addEventListener('change', render);
-        user.addEventListener('input', render);
-        render();
+        sel.addEventListener('change', function () { desc.textContent = descriptions[sel.value] || ''; update(false); });
+        user.addEventListener('input', function () { update(true); });
+        update(false);
       })();
     </script>`)
 }
@@ -152,7 +171,7 @@ export function homePage(cfg: Config, issuer: string) {
     <p class="sub">Point your app at <a href="${issuer}/.well-known/openid-configuration"><code>${issuer}</code></a></p>
     <table>
       <tr><th>Claim set</th><th>Description</th><th>Scopes</th></tr>
-      ${Object.entries(cfg.claimSets).map(([n, s]) => html`<tr><td><code>${n}</code></td><td>${s.description ?? ''}</td><td>${s.scopes.map((sc) => html`<code>${sc}</code> `)}</td></tr>`)}
+      ${Object.entries(cfg.claimSets).filter(([, s]) => s.usernames.length === 0).map(([n, s]) => html`<tr><td><code>${n}</code></td><td>${s.description ?? ''}</td><td>${s.scopes.map((sc) => html`<code>${sc}</code> `)}</td></tr>`)}
     </table>
     <table>
       <tr><th>Clients</th><th>Owned scopes</th></tr>

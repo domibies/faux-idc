@@ -67,6 +67,12 @@ clients: []
 #   shop-customer:
 #     scopes: [pack:shop]
 #     claims: { name: "{{username}}", customer_id: "{{uuid}}" }
+#
+# Optional `usernames`: hides the claim set on the sign-in form (and the home page) from everyone
+# except these usernames (case-insensitive). Hiding only: the grants accept it for any username. Example:
+#   admin:
+#     usernames: [sysop]
+#     claims: { roles: [admin] }
 claimSets:
   admin:
     description: Full access
