@@ -26,6 +26,7 @@ setup. faux-idc does only what an app needs to sign in:
 - **Named claim sets.** Define roles, groups and custom claims once in YAML, and select them on the form.
 - **Live claims preview.** The form shows the exact claims that go into the tokens before you sign in.
 - **Claim sets per scope.** An app can request a scope to get its own set of claim sets.
+- **Hidden claim sets.** Show a claim set, for example an admin set, only to testers who know its username.
 - **Scopes owned by a client.** Keep a scope, for example a write scope, for one confidential client.
 - **Live configuration.** Edit `config.yaml` and the next sign-in uses it. You do not restart anything.
 - **Tokens for CI.** The password grant gives tokens to scripts and tests, without a browser.
@@ -180,6 +181,34 @@ the `scope` claim of the access token. The home page shows the scopes of each cl
 <p align="center">
   <img src="docs/screenshots/home.png" alt="Home page with the claim sets, their scopes and the clients" width="400">
 </p>
+
+### Hidden claim sets
+
+You can keep a claim set out of the sign-in form for most testers. For example, only the testers
+who know an admin username see the admin claim set. To do this, add `usernames` to the claim set:
+
+```yaml
+claimSets:
+  user:
+    claims: { roles: [user] }
+  admin:
+    usernames: [sysop, gandalf]
+    claims: { roles: [admin, user] }
+```
+
+A claim set with `usernames` is *hidden*:
+
+- The sign-in form shows the claim set only when the username is one of `usernames`. faux-idc
+  ignores uppercase and lowercase, and spaces before or after the username.
+- The form updates the list while you type the username. The selected claim set stays selected.
+  The page source does not contain the usernames.
+- The home page does not show hidden claim sets.
+- The rules of [claim sets per scope](#claim-sets-per-scope) apply first. Then faux-idc removes the
+  hidden claim sets that the username does not unlock.
+
+Hiding is not access control. The grants accept a hidden claim set for all usernames. For example,
+the password grant with `username=alice` and `claim_set=admin` gives an admin token. The discovery
+document also lists the scopes of hidden claim sets.
 
 ### Scopes owned by a client
 
