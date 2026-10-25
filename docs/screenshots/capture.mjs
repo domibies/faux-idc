@@ -34,7 +34,9 @@ const authorize = (port, clientId) =>
 
 async function signInForm(page, username, claimSet) {
   await page.fill('input[name=username]', username)
-  await page.selectOption('#claim_set', claimSet)
+  // The form shows radio cards when they fit, else a dropdown.
+  if (await page.isVisible('#sets')) await page.click(`#sets input[value="${claimSet}"] >> xpath=..`)
+  else await page.selectOption('#claim_set', claimSet)
   await page.click('summary')
   await page.waitForFunction((name) => document.getElementById('preview').textContent.includes(name), username)
 }
@@ -48,11 +50,13 @@ try {
   ])
 
   const browser = await chromium.launch()
-  const shoot = async (file, colorScheme, url, act = async () => {}) => {
-    const page = await browser.newPage({ viewport: { width: 480, height: 300 }, deviceScaleFactor: 2, colorScheme })
+  const shoot = async (file, colorScheme, url, act = async () => {}, width = 480) => {
+    const page = await browser.newPage({ viewport: { width, height: 1400 }, deviceScaleFactor: 2, colorScheme })
     await page.goto(url)
     await act(page)
-    await page.screenshot({ path: `${DIR}/${file}`, fullPage: true })
+    // Crop to the content: the page centres a short card in a tall window.
+    const box = await page.locator('.page').boundingBox()
+    await page.screenshot({ path: `${DIR}/${file}`, clip: { x: 0, y: Math.max(0, box.y - 32), width, height: box.height + 64 } })
     await page.close()
     console.log(`wrote ${DIR}/${file}`)
   }
@@ -60,7 +64,7 @@ try {
   await shoot('login-light.png', 'light', authorize(18101, 'my-app'), (p) => signInForm(p, 'alice', 'azure-like'))
   await shoot('login-dark.png', 'dark', authorize(18101, 'my-app'), (p) => signInForm(p, 'alice', 'admin'))
   await shoot('entra-gate.png', 'light', authorize(18104, 'my-app'), (p) => signInForm(p, 'alice', 'admin'))
-  await shoot('home.png', 'light', 'http://localhost:18102/')
+  await shoot('home.png', 'light', 'http://localhost:18102/', undefined, 960)
   await browser.close()
 } finally {
   for (const child of children) child.kill()
