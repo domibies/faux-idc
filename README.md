@@ -63,7 +63,9 @@ Configure your app as for any OIDC provider:
 | Sign-in password | `letmein` or `test123` in the sample configuration |
 
 When your app starts a sign-in, faux-idc shows the form. The username and the claim set that you
-select go into the ID token, the access token and the userinfo response.
+select go into the ID token, the access token and the userinfo response. The form shows the claim
+sets as options with their descriptions. With more than five claim sets, or when the options do not
+fit in the window, the form shows a dropdown.
 
 ## Tokens without a browser
 
@@ -179,7 +181,7 @@ claim set. The discovery document lists these scopes in `scopes_supported`. The 
 the `scope` claim of the access token. The home page shows the scopes of each claim set:
 
 <p align="center">
-  <img src="docs/screenshots/home.png" alt="Home page with the claim sets, their scopes and the clients" width="400">
+  <img src="docs/screenshots/home.png" alt="Home page with the issuer, the endpoints, the claim sets with their scopes, and the clients" width="640">
 </p>
 
 ### Hidden claim sets
@@ -320,7 +322,7 @@ the faux-idc form, with a username and a claim set but no password. The form sti
 of the tokens. Entra only controls *who can use* the server.
 
 <p align="center">
-  <img src="docs/screenshots/entra-gate.png" alt="Sign-in form after the Entra check, with the verified account at the top" width="360">
+  <img src="docs/screenshots/entra-gate.png" alt="Sign-in form after the Entra check, with the verified account above the username" width="360">
 </p>
 
 1. Create an app registration with platform **Web** and redirect URI `<issuer>/entra/callback`.

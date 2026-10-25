@@ -24,24 +24,24 @@ async function loginPage(clientId: string): Promise<string> {
 describe('the sign-in form', () => {
   test('shows the name of a client that has one', async () => {
     const page = await loginPage('3f2a9c1e-spa')
-    assert.match(page, /Continue to <strong>Bo &lt;Portal&gt;<\/strong>/)
-    assert.doesNotMatch(page, /Continue to <code>/)
+    assert.match(page, /to continue to <strong>Bo &lt;Portal&gt;<\/strong>/)
+    assert.doesNotMatch(page, /to continue to <code>/)
   })
 
   test('shows the client_id of a client without a name', async () => {
-    assert.match(await loginPage('bo-backend'), /Continue to <code>bo-backend<\/code>/)
+    assert.match(await loginPage('bo-backend'), /to continue to <code>bo-backend<\/code>/)
   })
 })
 
 describe('the home page', () => {
   test('shows the name above the client_id of a client that has one', async () => {
     const page = await (await fetch(`${base}/`)).text()
-    assert.match(page, /<td>Bo &lt;Portal&gt;<br><code>3f2a9c1e-spa<\/code>/)
+    assert.match(page, /<span class="main">Bo &lt;Portal&gt;<small><code>3f2a9c1e-spa<\/code><\/small>/)
   })
 
   test('shows only the client_id of a client without a name', async () => {
     const page = await (await fetch(`${base}/`)).text()
-    assert.match(page, /<td><code>bo-backend<\/code>/)
+    assert.match(page, /<span class="main"><code>bo-backend<\/code>/)
   })
 })
 
