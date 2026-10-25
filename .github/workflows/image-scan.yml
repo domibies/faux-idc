@@ -27,6 +27,7 @@ jobs:
           ignore-unfixed: true
           format: sarif
           output: trivy.sarif
+          limit-severities-for-sarif: true # without it, SARIF output ignores `severity`
 
       - uses: github/codeql-action/upload-sarif@v4
         with:
