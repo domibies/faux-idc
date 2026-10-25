@@ -451,6 +451,29 @@ The script starts faux-idc with the configurations in [`docs/screenshots/configs
 The [Release workflow](.github/workflows/release.yml) then builds the image for `linux/amd64` and
 `linux/arm64`, and publishes it to `ghcr.io/domibies/faux-idc`.
 
+The `main` branch accepts changes only through a pull request with one approval and a green CI build.
+A repository admin can bypass this rule, for example to push the version commit of a release.
+
+## Security checks
+
+- **CI** scans the image with [Trivy](https://trivy.dev). A HIGH or CRITICAL vulnerability that has a
+  fix makes the build fail. To run the same scan locally:
+
+  ```bash
+  docker build -t faux-idc:local .
+  trivy image --severity HIGH,CRITICAL --ignore-unfixed faux-idc:local
+  ```
+
+- **The [Image scan workflow](.github/workflows/image-scan.yml)** scans the published `latest` image every
+  week and shows the results in the Security tab. A new finding there means that a release is necessary,
+  because a release rebuilds the image on the current base image.
+- **Dependabot** opens a weekly pull request for npm packages, GitHub Actions and the Node base image.
+  It waits 7 days before it proposes a new npm or Actions release. Security updates come at once.
+- **CodeQL** analyzes the TypeScript code and the workflows on each pull request.
+- **Secret scanning** with push protection blocks a push that contains a known secret format.
+
+The runtime image contains only Node and the bundled `server.mjs`. It has no npm, npx, corepack or yarn.
+
 ## License
 
 [MIT](LICENSE)

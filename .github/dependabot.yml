@@ -1,0 +1,37 @@
+# Weekly version updates. Minor and patch updates are grouped into one PR per ecosystem.
+# Security updates (enabled in the repository settings) still arrive at once, one PR each.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Wait a week before proposing a new release: a compromised package is usually found and pulled by then.
+    cooldown:
+      default-days: 7
+    groups:
+      production:
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  # The node base image of the Dockerfile. Stay on the current Node LTS line: a new major is a deliberate change.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]

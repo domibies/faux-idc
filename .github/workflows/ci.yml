@@ -42,6 +42,15 @@ jobs:
           curl -sf http://localhost:8080/token -d grant_type=password -d client_id=ci \
             -d username=alice -d password=letmein -d claim_set=admin | jq -e '.access_token and .id_token'
 
+      # Pinned to a commit: trivy-action tags were force-pushed to malicious commits in March 2026 (CVE-2026-33634).
+      - name: Scan the image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: faux-idc:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
       - name: Container logs
         if: always()
         run: docker logs faux-idc || true

@@ -17,7 +17,11 @@ ENV NODE_ENV=production \
     SIGNING_KEY_PATH=/data/signing-key.pem
 COPY --from=build /app/dist/server.mjs ./server.mjs
 COPY config/config.yaml /config/config.yaml
-RUN mkdir -p /data && chown node:node /data
+# The app is one bundled file. npm, corepack and yarn are never used at runtime, and npm's own
+# dependencies are a regular source of CVEs, so they are removed.
+RUN rm -rf /usr/local/lib/node_modules /opt/yarn-* \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+ && mkdir -p /data && chown node:node /data
 USER node
 VOLUME ["/data"]
 EXPOSE 8080
